@@ -1,7 +1,7 @@
 # Verification — 2 October 2026 (Neon and barcode update)
 
 - Final production build: passed (`next build`, Next.js 16.3.8); strict TypeScript compilation passed.
-- Pricing, input-validation, SKU and PostgreSQL tests: **7 passed**.
+- Pricing, input-validation, SKU, PostgreSQL and automatic-migration tests: **11 passed**.
 - Complete browser workflow: **1 passed**, covering desktop/mobile, login/logout, rejected login, protected APIs, vendor/rate setup, photo upload/read, create/edit/delete, refresh persistence, vendor/date filters, saved exchange rates, invalid input, cross-origin write rejection and stale-edit rejection. No JavaScript page errors were recorded.
 - SKU generation: BACKGROUND mapping, Z decimal separator, two pence digits, suffixes 000 and 999, vendor normalization and half-up rounding verified. The SKU and visible barcode are available before saving.
 - Database: the generic PostgreSQL migration ran twice successfully in PGlite. Pricing triggers matched TypeScript calculations including rounding and large values. Untrusted table/function access was denied. Persistent login limiting and reset passed.
@@ -13,6 +13,22 @@
 - Desktop/mobile screenshots and printed label renderings were inspected; mobile page overflow checks passed.
 - The existing PeaSoup adapter remains unchanged from the previously validated version (signed PUT expiry/content length, MIME type, WebP checks and S3 checksum compatibility). Supabase packages and environment variables have been removed.
 - The legacy-product backfill script loads and reports missing credentials clearly. Live backfill needs a configured Neon account.
+
+## SQL setup verification added
+
+The standalone SQL setup was run on fresh PostgreSQL via PGlite and rerun successfully. Existing vendor/rate data was preserved. The read-only verifier returned all five tables and caught a deliberately disabled identity trigger. SQL setup creates all required tables, keys, pricing and identity triggers, login limiter and settings singleton; it verifies required columns/types and supporting indexes before committing.
+
+On 2 October 2026, the connected Vercel app listed `sn-pinventory-manager` (`prj_jbdcBdNejawu5WrdEdSeRCEag5Yj`), but project details and deployment access returned 403 for the `snp11` scope. No live database credential was available locally. No SQL has been applied to the live Neon database from this workspace, and production readiness is not yet verified. Re-authorizing Vercel for that scope is needed to continue live inspection.
+
+## Automatic Vercel migration
+
+- Added npm `prebuild` migration hook, `db:migrate` manual command, and `vercel.json` build-command wiring.
+- The actual runner executed against PostgreSQL via PGlite: first deployment created all five tables; repeat deployment retained a complete saved product, barcode, vendor and exchange rate exactly.
+- Verification failure rolled back initial table creation. On an existing schema it restored the active trigger and preserved vendor data.
+- The real `npm run build` process with `VERCEL=1` and missing `DATABASE_URL` exited 1 during prebuild before Next.js built. `DEMO_MODE=true` did not bypass the check.
+- Transaction-level advisory locking and timeout SQL executed successfully. Multiple live Neon/Vercel builds have not been tested concurrently.
+- No dependency changes were required. The migration uses Neon's pg-compatible Client over WebSockets; the native Node.js WebSocket is explicitly configured.
+- Ordinary local builds skip database access. A full local production build is verified separately; live database execution is deferred to Vercel's next build with its configured credential.
 
 ## Live verification still required
 

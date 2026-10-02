@@ -44,9 +44,27 @@ For real services, copy `.env.example` to `.env.local`, supply the values descri
 ## Connect Neon
 
 1. Create a Neon PostgreSQL project near your Vercel function region.
-2. In the Neon SQL Editor, run the complete `database/migration.sql` as the database owner. The script is safe to rerun.
+2. Connect Neon to the Vercel project and ensure **`DATABASE_URL` is enabled for Production** (and Preview if using preview deployments). The app runs its schema creation and verification automatically before every Vercel build; you do not need to paste SQL manually. Use the database owner role for this connection.
 3. In **Connect**, select the database and owner role, enable connection pooling, and copy the PostgreSQL connection string. Set it as server-only `DATABASE_URL`; preserve its SSL parameters, including `sslmode=require`. The Neon serverless driver uses HTTPS, suitable for Vercel functions.
 4. Never prefix this credential with `NEXT_PUBLIC_`. This app needs the table owner connection because tables have RLS enabled with no public policies; a restricted non-owner role will not work without explicitly configuring its policies/permissions.
+
+### Automatic migration on deployment
+
+`vercel.json` sets the build command to `npm run build`. Its npm `prebuild` hook runs `node scripts/migrate.mjs --build` before Next.js builds. The runner uses the existing Neon serverless dependency and connects with `DATABASE_URL`; no additional database service or migration credential is needed.
+
+Each Vercel deployment (Production and Preview) creates/verifies all five app tables, supporting indexes/keys, price and identity triggers, login limiter and settings row. Creation and verification run in one PostgreSQL transaction with a transaction-level advisory lock, so simultaneous builds wait rather than changing the schema together. Existing inventory, photos, reserved SKUs, vendors and exchange rates are preserved on repeated builds. If connectivity, owner permissions, SQL or verification fails, the transaction rolls back and the build exits nonzero before Next.js builds. Error logs show the stage and PostgreSQL code without the connection string.
+
+The successful build log contains **`Database schema verified: 5 app tables. Existing inventory preserved.`** Add your actual vendors and exchange rate in Settings after the first deployment. Missing `DATABASE_URL` fails Vercel builds even if `DEMO_MODE=true`. Use a separate Neon branch/database for Preview, since preview builds migrate the database configured for that environment.
+
+Ordinary local `npm run build` remains offline. For local database creation, copy the server variables into `.env.local`, then explicitly run:
+
+```bash
+npm run db:migrate
+```
+
+The migration runner reads `.env.local` for manual local runs. The existing product SKU backfill remains a separate explicit command for older imported products. Build migrations do not invent vendors, exchange rates, stock or SKU backfill data.
+
+Manual SQL setup is still available: run the complete `database/setup.sql` as owner in the Neon SQL Editor on the same branch/database as Vercel. It creates and verifies the same schema. A successful setup ends with `schema_status = schema verified` and `app_tables = 5`. The report also shows whether an exchange rate and active vendors are configured, plus any older products that need barcode backfill. Set your actual exchange rate and vendors in the app Settings. To check an existing schema without modifying it, run `database/verify.sql`.
 
 The migration creates `vendors`, `settings`, `products`, `login_limits` and `sku_reservations`. It installs pricing, immutable-identity and login-limit triggers/functions; unique indexes protect SKUs and photo ownership. New-product saving atomically redeems a reservation and inserts the product in one PostgreSQL statement. Failed saves roll back the claim. Retrying the same reservation and identical data returns the existing product.
 
@@ -121,7 +139,7 @@ Set its output as `SESSION_SECRET`. Production requires a configured password ha
 2. Import the repository in Vercel. Use the **Next.js** framework preset, repository root, Node.js **24.x**, `npm ci` for install, and `npm run build` for build. Leave the Output Directory at the Next.js default.
 3. Add all Neon, PeaSoup, username, password hash and session-secret variables from `.env.example` to Vercel's Production environment. Add them to Preview only if previews should use those services. Prefer separate data/services for previews.
 4. Set `DEMO_MODE=false` (or omit it). Do not manually set `NODE_ENV` or `VERCEL`.
-5. Deploy and configure PeaSoup CORS for the deployment hostname. Redeploy after environment-variable changes.
+5. Commit the updated source, including `vercel.json` and `scripts/migrate.mjs`, and deploy. Watch for `Database schema verified: 5 app tables` in the build logs. Configure PeaSoup CORS for the deployment hostname. Redeploy after environment-variable changes.
 6. Sign in, add your actual vendors, save your exchange rate, and create a product with a photo. Refresh and verify that the entry and photo persist.
 
 Alternatively, from the configured project directory, use the Vercel CLI:
@@ -194,7 +212,7 @@ npx playwright install chromium
 npm run test:e2e
 ```
 
-`npm test` checks financial rounding and input validation and executes the migration against local PostgreSQL via PGlite, including its pricing trigger, access restrictions, login limiter, unique reservations, immutable identifiers and atomic save rollback. Browser tests run a local demo server on port 3010 and create test vendors/products; use a separate checkout or reset local demo data if needed. Stop other `next dev` processes for the same checkout before running the browser suite.
+`npm test` checks automatic migration creation, preservation of saved inventory on redeployment, verification rollback and the actual npm build stopping without a Vercel database credential. It also checks financial rounding and input validation and executes the migration against local PostgreSQL via PGlite, including its pricing trigger, access restrictions, login limiter, unique reservations, immutable identifiers and atomic save rollback. Browser tests run a local demo server on port 3010 and create test vendors/products; use a separate checkout or reset local demo data if needed. Stop other `next dev` processes for the same checkout before running the browser suite.
 
 The browser suite covers sign-in, auth rejection, settings, photo upload, create/edit/delete, persistence on refresh, filters, historical rate preservation, mobile layout, CSRF rejection and stale-edit conflicts. It also checks barcode generation before save, duplicate-free concurrent reservations, idempotent saving with a photo, reservation/pricing mismatch rejection, keyboard lookup, actual ZXing decoding from a generated barcode camera stream, label copy counts, print CSS/PDF sizes, and preserved barcodes after price edits. Provider connectivity, bucket CORS, network policy and Vercel deployment need a live check with your own services.
 
@@ -203,7 +221,11 @@ The browser suite covers sign-in, auth rejection, settings, photo upload, create
 - `app/` — pages, layouts and authenticated API routes.
 - `components/` — branded UI and forms.
 - `lib/` — financial calculations, validation, sessions, data repository and storage adapter.
-- `database/migration.sql` — schema, constraints, permissions, indexes and trigger.
+- `database/setup.sql` — complete creation and verification for the Neon SQL Editor.
+- `database/migration.sql` — schema, constraints, permissions, indexes and triggers.
+- `database/verify.sql` — read-only schema checks and configuration summary.
+- `scripts/migrate.mjs` — automatic transactional creation and verification during Vercel builds.
+- `vercel.json` — ensures Vercel uses the npm build command and its migration hook.
 - `scripts/password-hash.mjs` — local login password setup.
 - `scripts/backfill-skus.ts` — assign barcodes to older products in Neon.
 - `public/logo.webp` — optimised copy of the supplied logo.

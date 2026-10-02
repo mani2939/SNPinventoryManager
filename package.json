@@ -7,10 +7,12 @@
     "build": "next build",
     "start": "next start --hostname 0.0.0.0",
     "typecheck": "tsc --noEmit",
-    "test": "node --import tsx --test tests/pricing.test.ts tests/database.test.ts tests/sku.test.ts",
+    "test": "node --import tsx --test tests/pricing.test.ts tests/database.test.ts tests/sku.test.ts tests/migration.test.mjs",
     "test:e2e": "playwright test",
     "password:hash": "node scripts/password-hash.mjs",
-    "backfill:skus": "node --env-file=.env.local --import tsx scripts/backfill-skus.ts"
+    "backfill:skus": "node --env-file=.env.local --import tsx scripts/backfill-skus.ts",
+    "prebuild": "node scripts/migrate.mjs --build",
+    "db:migrate": "node scripts/migrate.mjs"
   },
   "keywords": [],
   "author": "",
