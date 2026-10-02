@@ -2,10 +2,14 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Printer } from "lucide-react";
-import { BarcodePreview } from "./barcode-preview";
-import { money } from "@/lib/client";
-import type { Product } from "@/lib/types";
-export function LabelPrinter({ product }: { product: Product }) {
+import { ProductLabel, type ProductLabelData } from "./product-label";
+export function LabelPrinter({
+  product,
+  onClose,
+}: {
+  product: ProductLabelData;
+  onClose?: () => void;
+}) {
   const [copies, setCopies] = useState("1");
   const [size, setSize] = useState("70x40");
   const [retail, setRetail] = useState(true);
@@ -17,7 +21,9 @@ export function LabelPrinter({ product }: { product: Product }) {
     return (
       <div className="notice">
         This older product needs the SKU backfill before labels can be printed.{" "}
-        <Link href={`/products/${product.id}`}>Back to product</Link>
+        {product.id ? (
+          <Link href={`/products/${product.id}`}>Back to product</Link>
+        ) : null}
       </div>
     );
   function print() {
@@ -37,9 +43,15 @@ export function LabelPrinter({ product }: { product: Product }) {
             <h1>Print labels</h1>
             <p className="muted">{product.item_name}</p>
           </div>
-          <Link href={`/products/${product.id}`} className="button secondary">
-            Back to product
-          </Link>
+          {onClose ? (
+            <button type="button" className="button secondary" onClick={onClose}>
+              Close label printer
+            </button>
+          ) : product.id ? (
+            <Link href={`/products/${product.id}`} className="button secondary">
+              Back to product
+            </Link>
+          ) : null}
         </div>
         <section className="card label-options">
           <label>
@@ -68,7 +80,12 @@ export function LabelPrinter({ product }: { product: Product }) {
             />
             Show retail price
           </label>
-          <button className="button primary" onClick={print} disabled={!valid}>
+          <button
+            type="button"
+            className="button primary"
+            onClick={print}
+            disabled={!valid}
+          >
             <Printer size={17} />
             Print labels
           </button>
@@ -91,19 +108,15 @@ export function LabelPrinter({ product }: { product: Product }) {
           {
             "--label-width": `${width}mm`,
             "--label-height": `${height}mm`,
+            "--label-name-size": width >= 100 ? "14pt" : "11pt",
+            "--label-price-size": width >= 100 ? "24pt" : "20pt",
+            "--label-barcode-height": width >= 100 ? "15mm" : "11mm",
           } as React.CSSProperties
         }
       >
         {Array.from({ length: valid ? count : 1 }, (_, i) => (
           <article key={i} className="printed-label">
-            <div className="label-brand">SHAPES & PIECES</div>
-            <div className="label-name">{product.item_name}</div>
-            <BarcodePreview sku={product.sku!} svg={product.barcode_svg!} />
-            {retail ? (
-              <strong className="label-price">
-                {money(product.retail_gbp, "GBP")}
-              </strong>
-            ) : null}
+            <ProductLabel product={product} showRetail={retail} />
           </article>
         ))}
       </div>

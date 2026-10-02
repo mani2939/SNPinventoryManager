@@ -59,6 +59,36 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await expect(page.getByLabel("SKU code")).toHaveValue(/^JAI-NZKG-\d{3}$/);
   const sku = await page.getByLabel("SKU code").inputValue();
   await expect(page.getByAltText(`Barcode ${sku}`)).toBeVisible();
+  await expect(page.locator(".sku-card .label-name")).toHaveText(`Kundan pearl set ${stamp}`);
+  await expect(page.locator(".sku-card .label-price")).toHaveText("£28.35");
+  // Draft labels can be printed from the SKU card without submitting the product.
+  let draftSaves = 0;
+  page.on("request", r => { if (r.url().endsWith("/api/products") && r.method() === "POST") draftSaves++; });
+  await page.locator(".sku-card").getByRole("button", {name:"Print barcode labels"}).click();
+  const printDialog = page.getByRole("dialog", {name:"Print barcode labels"});
+  await expect(printDialog).toBeVisible();
+  await printDialog.getByLabel("Number of labels").fill("2");
+  await expect(printDialog.locator(".printed-label")).toHaveCount(2);
+  const order = await printDialog.locator(".product-label").first().evaluate(el =>
+    [...el.children].map(child => child.className));
+  expect(order).toEqual(["label-name", "label-price", "barcode-preview"]);
+  await page.evaluate(() => { window.print = () => { document.documentElement.dataset.printCalled = "draft"; }; });
+  await printDialog.getByRole("button", {name:"Print labels",exact:true}).click();
+  expect(await page.locator("html").getAttribute("data-print-called")).toBe("draft");
+  await page.emulateMedia({media:"print"});
+  await expect(page.locator(".product-layout")).not.toBeVisible();
+  await expect(printDialog.locator(".printed-label").first()).toBeVisible();
+  await page.pdf({path:"test-results/draft-labels-70x40.pdf",preferCSSPageSize:true,printBackground:true});
+  await page.emulateMedia({media:"screen"});
+  await page.setViewportSize({width:390,height:844});
+  expect((await printDialog.getByLabel("Number of labels").boundingBox())!.width).toBeGreaterThan(100);
+  expect((await printDialog.getByLabel("Label size").boundingBox())!.width).toBeGreaterThan(100);
+  await page.screenshot({path:"test-results/draft-labels-mobile.png",fullPage:true});
+  await page.keyboard.press("Escape");
+  await expect(printDialog).not.toBeVisible();
+  await expect(page.locator(".sku-card").getByRole("button",{name:"Print barcode labels"})).toBeFocused();
+  expect(draftSaves).toBe(0);
+  await page.setViewportSize({width:1440,height:1000});
   await page.screenshot({
     path: "test-results/product-desktop.png",
     fullPage: true,
@@ -224,6 +254,11 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await page.getByLabel("Quantity").fill("5");
   await page.getByLabel("Price per piece (INR)").fill("2000");
   await expect(page.getByLabel("SKU code")).toHaveValue(sku);
+  await expect(page.locator(".sku-card .label-price")).toHaveText("£56.70");
+  await page.locator(".sku-card").getByRole("button", {name:"Print barcode labels"}).click();
+  await expect(printDialog.locator(".label-price")).toHaveText("£56.70");
+  await expect(printDialog.locator(".barcode-preview code")).toHaveText(sku);
+  await printDialog.getByRole("button", {name:"Close label printer"}).click();
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page).toHaveURL(/inventory/);
   await expect(row).toContainText("₹9,450.00");

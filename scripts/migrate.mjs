@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 import { pathToFileURL } from "node:url";
 import { Client, neonConfig } from "@neondatabase/serverless";
+import { assertAuthConfiguration } from "../lib/auth-config.mjs";
 
 class MigrationError extends Error {
   constructor(stage, cause) {
@@ -70,6 +71,9 @@ async function main() {
     console.log("Automatic DB migration runs on Vercel. For local database setup, use npm run db:migrate.");
     return;
   }
+  // Catch incomplete production login setup before publishing a broken login.
+  // Manual database migrations do not require admin/session configuration.
+  if (build) assertAuthConfiguration();
   if (typeof globalThis.WebSocket !== "function") throw new Error("Database migration requires Node.js 22 or 24 with WebSocket support.");
   neonConfig.webSocketConstructor = globalThis.WebSocket;
   const [migrationSql, verificationSql] = await Promise.all([

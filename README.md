@@ -9,7 +9,7 @@ A Vercel-ready jewellery inventory app using Next.js 16.3.8, React 19.3, TypeScr
 - Product creation, editing and deletion.
 - Automatic BACKGROUND SKU encoding and a saved Code 128 barcode shown before product saving.
 - Exact barcode lookup using a USB/Bluetooth keyboard scanner, manual SKU entry or a camera.
-- Printable 70 × 40 mm and 100 × 50 mm barcode labels with quantity and optional retail price.
+- Product-name, GBP retail-price and barcode labels, with printing directly from the SKU card before or after saving. Supports 70 × 40 mm and 100 × 50 mm labels and multiple copies.
 - Item name, description, vendor dropdown, date (auto-filled for Europe/London), INR price per piece, quantity, discount percentage and shipping percentage.
 - Automatic purchase totals, shipping amount, final landed total, batch GBP total, GBP cost per piece and 3× retail price per piece.
 - Inventory table with barcode, vendor and inclusive date filters, all pricing fields, photos, descriptions and 25-row pagination.
@@ -37,6 +37,8 @@ Then run:
 npm run dev
 ```
 
+Open http://localhost:3000 and sign in with **SNPAdmin / SNPRocks**. Add vendors and an exchange rate in Settings before entering products. Local demo data and photos live under `.demo-data/`; no sample inventory is preloaded. This mode is disabled when `NODE_ENV=production` or `VERCEL` is set. It is not production persistence.
+
 For real services, copy `.env.example` to `.env.local`, supply the values described below, and set `DEMO_MODE=false`.
 
 ## Connect Neon
@@ -50,7 +52,7 @@ For real services, copy `.env.example` to `.env.local`, supply the values descri
 
 `vercel.json` sets the build command to `npm run build`. Its npm `prebuild` hook runs `node scripts/migrate.mjs --build` before Next.js builds. The runner uses the existing Neon serverless dependency and connects with `DATABASE_URL`; no additional database service or migration credential is needed.
 
-Each Vercel deployment (Production and Preview) creates/verifies all five app tables, supporting indexes/keys, price and identity triggers, login limiter and settings row. Creation and verification run in one PostgreSQL transaction with a transaction-level advisory lock, so simultaneous builds wait rather than changing the schema together. Existing inventory, photos, reserved SKUs, vendors and exchange rates are preserved on repeated builds. If connectivity, owner permissions, SQL or verification fails, the transaction rolls back and the build exits nonzero before Next.js builds. Error logs show the stage and PostgreSQL code without the connection string.
+Each Vercel deployment (Production and Preview) creates/verifies all five app tables, supporting indexes/keys, price and identity triggers, login limiter and settings row. Creation and verification run in one PostgreSQL transaction with a transaction-level advisory lock, so simultaneous builds wait rather than changing the schema together. Existing inventory, photos, reserved SKUs, vendors and exchange rates are preserved on repeated builds. If connectivity, owner permissions, SQL or verification fails, the transaction rolls back and the build exits nonzero before Next.js builds. Error logs show the stage and PostgreSQL code without the connection string. Vercel builds also validate admin password-hash and session-secret configuration before starting migration.
 
 The successful build log contains **`Database schema verified: 5 app tables. Existing inventory preserved.`** Add your actual vendors and exchange rate in Settings after the first deployment. Missing `DATABASE_URL` fails Vercel builds even if `DEMO_MODE=true`. Use a separate Neon branch/database for Preview, since preview builds migrate the database configured for that environment.
 
@@ -131,6 +133,25 @@ openssl rand -hex 32
 
 Set its output as `SESSION_SECRET`. Production requires a configured password hash and a session secret of at least 32 characters; the local demo password fallback is disabled. The password hash helper reads stdin rather than a command-line password argument. Changing the password hash does not immediately revoke existing 8-hour sessions; rotating `SESSION_SECRET` revokes them.
 
+## Production login 500 troubleshooting
+
+A request summary with status 500 does not contain the server exception. Check the Runtime Logs for that request, or the detailed login response in this updated version. The login needs three server-side configurations independently of the Neon/Vercel connection:
+
+| Variable | Required value |
+| --- | --- |
+| `DATABASE_URL` | Owner-role Neon connection string, enabled for Production |
+| `ADMIN_PASSWORD_HASH` | The **salt:hash output** from `npm run password:hash`; enter SNPRocks at its prompt, not directly into this environment variable |
+| `SESSION_SECRET` | A random secret, at least 32 characters; generate with `openssl rand -hex 32` |
+| `ADMIN_USERNAME` | SNPAdmin (also the default if omitted) |
+
+Set these values in the project's **Production environment**, then redeploy. Connecting Neon supplies the database URL; it does not configure the password hash or session secret. These variables must be available to the build and runtime.
+
+Vercel prebuild now validates production login configuration before connecting/migrating. Missing or malformed authentication settings stop the build with a message identifying the variable. Manual `npm run db:migrate` does not require admin login settings. The local demo login is unchanged.
+
+Runtime configuration failures show specific safe messages and codes, such as `AUTH_PASSWORD_HASH_MISSING`, `AUTH_PASSWORD_HASH_INVALID` or `AUTH_SESSION_SECRET_MISSING`. Database failures distinguish missing login schema/function and insufficient database permissions when PostgreSQL supplies those codes. Other failures include a reference code and request ID. Search Runtime Logs for `auth_login_failed`; each event reports `stage`, `code`, `requestId` and any PostgreSQL error code. Credentials, connection strings, secrets and raw database errors are not logged by this route.
+
+A wrong username/password still returns 401; excessive attempts still return 429; origin protection remains active. Schema migrations and Neon connectivity do not bypass authentication. When sharing an error for diagnosis, share the safe code/message and request ID, not environment-variable values.
+
 ## Deploy to Vercel
 
 1. Upload this source to a private GitHub/GitLab/Bitbucket repository, without `.env.local`, `.demo-data`, `.next` or `node_modules`.
@@ -198,7 +219,13 @@ Saved SKUs/barcodes remain fixed after edits, vendor archival and exchange-rate 
 
 In Inventory, focus **Scan barcode or enter SKU**, scan with a USB/Bluetooth keyboard-wedge scanner and press Enter (or configure the scanner's Enter suffix). Exact SKU lookup clears previous vendor/date filters. Manual entry accepts lowercase and normalizes it. **Use camera** scans through the device camera; it requires HTTPS, browser camera permission and a supported browser. Camera capture stops after a successful scan, on closing, or when leaving the page.
 
-Use the printer action on a saved row or **Print barcode labels** on the product page. Choose 1–1,000 copies, label size and whether to show retail price. Each label includes the brand, product name, barcode, full SKU and optional retail price. Printing uses the stored barcode and shows the product's current retail price. Select matching paper size, 100% scale and no browser headers/footers; print one label first to check your printer/scanner. Browser Print can also save a PDF. Long SKUs may need the wider 100 × 50 mm size for reliable scanning; physical printer/scanner quality must be checked on your hardware.
+Labels follow the supplied reference: **product name → large GBP retail price → barcode → full SKU**, centred in black on white. The product's SKU card previews this same layout. The retail price uses the existing 3× GBP cost calculation.
+
+Click **Print barcode labels** on the **SKU & barcode** card to open the printer without leaving your entry. It works for new products once the name, costs and reserved barcode are ready, and for saved products. Select 1–1,000 copies and 70 × 40 mm or 100 × 50 mm labels, then click **Print labels**. Retail price is included by default; it can be hidden in the print options. Close the printer with its button or Escape; your entry remains in place. Only labels appear in printed output.
+
+Printing from an entry uses its current name and calculated retail price, including unsaved edits, with the reserved/stored barcode. Printing does not save the product: save a new entry so scanning can find it in inventory; save edits to update labels printed later from the inventory row. The saved-row printer action and product label page remain available and use saved product data.
+
+Select matching paper size, 100% scale and no browser headers/footers; print one label first to check your printer/scanner. Browser Print can also save a PDF. Product names wrap to two lines on physical labels; longer names are clipped to keep the price/barcode clear. Long SKUs may need the wider 100 × 50 mm size for reliable scanning; physical printer/scanner quality must be checked on your hardware.
 
 ## Verify
 
@@ -206,6 +233,7 @@ Use the printer action on a saved row or **Print barcode labels** on the product
 npm run typecheck
 npm test
 npm run build
+npm run test:auth:production
 npx playwright install chromium
 npm run test:e2e
 ```
@@ -218,7 +246,7 @@ The browser suite covers sign-in, auth rejection, settings, photo upload, create
 
 - `app/` — pages, layouts and authenticated API routes.
 - `components/` — branded UI and forms.
-- `lib/` — financial calculations, validation, sessions, data repository and storage adapter.
+- `lib/` — financial calculations, validation, production authentication checks, sessions, data repository and storage adapter.
 - `database/setup.sql` — complete creation and verification for the Neon SQL Editor.
 - `database/migration.sql` — schema, constraints, permissions, indexes and triggers.
 - `database/verify.sql` — read-only schema checks and configuration summary.

@@ -1517,30 +1517,57 @@ tbody tr:hover {
   overflow: hidden;
   break-inside: avoid;
 }
-.label-brand {
+.product-label {
+  width: 100%;
   font-family: Arial, sans-serif;
-  font-size: 8pt;
-  font-weight: 700;
-  letter-spacing: 0.08em;
+  color: #000;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1mm;
+}
+.label-card-preview {
+  background: #fff;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 18px 12px;
+  margin: 16px 0;
+}
+.label-card-preview .label-name {
+  font-size: 24px;
+}
+.label-card-preview .label-price {
+  font-size: 38px;
+  margin: 8px 0;
+}
+.label-card-preview .barcode-preview {
+  border: 0;
+  padding: 0;
+  width: 100%;
+  margin: 8px 0 0;
 }
 .label-name {
   font-family: Arial, sans-serif;
-  font-size: 9pt;
+  font-size: var(--label-name-size, 11pt);
   line-height: 1.15;
-  max-height: 8mm;
+  max-height: 2.3em;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
   overflow: hidden;
   width: 100%;
-  margin-top: 1mm;
   overflow-wrap: anywhere;
 }
 .printed-label .barcode-preview {
   border: 0;
   padding: 0;
-  margin: 2mm 0 1mm;
+  margin: 0;
   width: 100%;
 }
 .printed-label .barcode-preview img {
-  height: 13mm;
+  height: var(--label-barcode-height, 11mm);
   width: 100%;
   max-width: none;
   object-fit: fill;
@@ -1553,8 +1580,31 @@ tbody tr:hover {
 }
 .label-price {
   font-family: Arial, sans-serif;
-  font-size: 10pt;
+  font-size: var(--label-price-size, 20pt);
+  font-weight: 700;
   line-height: 1.1;
+}
+.printed-label {
+  padding: 2mm;
+}
+.barcode-print-dialog {
+  width: min(960px, calc(100vw - 32px));
+  max-width: none;
+  max-height: calc(100dvh - 32px);
+  padding: 24px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-sizing: border-box;
+  overflow: auto;
+}
+.barcode-print-dialog::backdrop {
+  background: #17243c88;
+}
+.barcode-print-dialog .labels-sheet {
+  overflow-x: auto;
+}
+.barcode-print-dialog .printed-label {
+  flex-shrink: 0;
 }
 .printed-label:last-child {
   break-after: auto;
@@ -1577,11 +1627,20 @@ tbody tr:hover {
     flex-basis: 100%;
   }
   .label-options {
-    gap: 15px;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 16px;
   }
   .label-options > label:not(.check-label) {
     min-width: 0;
-    flex: 1;
+    max-width: none;
+  }
+  .label-options .check-label,
+  .label-options > .button {
+    grid-column: 1 / -1;
+  }
+  .barcode-print-dialog {
+    padding: 16px;
   }
   .labels-sheet {
     justify-content: center;
@@ -1591,6 +1650,24 @@ tbody tr:hover {
   }
 }
 @media print {
+  body:has(.barcode-print-dialog[open]) > :not(.barcode-print-dialog) {
+    display: none !important;
+  }
+  .barcode-print-dialog[open] {
+    position: static !important;
+    width: auto !important;
+    height: auto !important;
+    max-width: none !important;
+    max-height: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    border: 0 !important;
+    border-radius: 0 !important;
+    overflow: visible !important;
+  }
+  .barcode-print-dialog::backdrop {
+    display: none;
+  }
   html,
   body {
     background: white !important;
@@ -1615,6 +1692,7 @@ tbody tr:hover {
   .labels-sheet {
     display: block !important;
     margin: 0 !important;
+    overflow: visible !important;
   }
   .printed-label {
     border: 0 !important;

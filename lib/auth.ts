@@ -2,11 +2,13 @@ import "server-only";
 import { cookies } from "next/headers";
 import { SignJWT, jwtVerify } from "jose";
 import { scryptSync, timingSafeEqual } from "node:crypto";
+import { assertAuthConfiguration } from "./auth-config.mjs";
 export const demoMode = () =>
   process.env.DEMO_MODE === "true" &&
   process.env.NODE_ENV === "development" &&
   !process.env.VERCEL;
 function secret() {
+  if (!demoMode()) assertAuthConfiguration();
   const value =
     process.env.SESSION_SECRET ||
     (demoMode() ? "local-only-preview-secret-never-deploy-32chars" : "");
@@ -15,6 +17,7 @@ function secret() {
   return new TextEncoder().encode(value);
 }
 export function verifyCredentials(username: string, password: string) {
+  if (!demoMode()) assertAuthConfiguration();
   const expectedUser = process.env.ADMIN_USERNAME || "SNPAdmin";
   if (username.length > 100 || password.length > 200) return false;
   let hash = process.env.ADMIN_PASSWORD_HASH;

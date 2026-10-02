@@ -10,10 +10,12 @@ import {
   Check,
   Package,
   Trash2,
+  Printer,
 } from "lucide-react";
 import { api, money, today } from "@/lib/client";
 import { calculatePricing } from "@/lib/pricing";
-import { BarcodePreview } from "./barcode-preview";
+import { ProductLabel } from "./product-label";
+import { LabelPrintDialog } from "./label-print-dialog";
 import { reservationSchema } from "@/lib/validation";
 import type { SkuReservation, Product, Vendor, Settings } from "@/lib/types";
 type Form = {
@@ -104,6 +106,7 @@ export function ProductForm({ initial }: { initial?: Product }) {
   const [skuBusy, setSkuBusy] = useState(false);
   const [skuError, setSkuError] = useState("");
   const [skuRetry, setSkuRetry] = useState(0);
+  const [printOpen, setPrintOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
   const blobUrl = useRef("");
   useEffect(() => {
@@ -176,6 +179,22 @@ export function ProductForm({ initial }: { initial?: Product }) {
     !!reservation &&
     reservation.vendor_id === form.vendor_id &&
     reservation.unit_gbp === totals.unit_gbp;
+  const labelProduct = {
+    id: initial?.id,
+    item_name: form.item_name.trim(),
+    retail_gbp: totals.retail_gbp,
+    sku: initial?.sku || (reservationReady ? reservation!.sku : null),
+    barcode_svg:
+      initial?.barcode_svg || (reservationReady ? reservation!.barcode_svg : null),
+  };
+  const canPrint =
+    !!labelProduct.sku &&
+    !!labelProduct.barcode_svg &&
+    !!labelProduct.item_name &&
+    !!rate &&
+    safe &&
+    reservationSchema.safeParse(reservationInput).success &&
+    (!!initial || (!skuBusy && reservationReady));
   useEffect(() => {
     if (initial) return;
     if (!canReserve) {
@@ -517,13 +536,10 @@ export function ProductForm({ initial }: { initial?: Product }) {
                 }
               />
             </label>
-            {initial?.barcode_svg && initial.sku ? (
-              <BarcodePreview sku={initial.sku} svg={initial.barcode_svg} />
-            ) : reservationReady ? (
-              <BarcodePreview
-                sku={reservation!.sku}
-                svg={reservation!.barcode_svg}
-              />
+            {labelProduct.sku && labelProduct.barcode_svg ? (
+              <div className="label-card-preview">
+                <ProductLabel product={labelProduct} />
+              </div>
             ) : (
               <p className="field-hint" role="status">
                 {skuBusy
@@ -552,14 +568,22 @@ export function ProductForm({ initial }: { initial?: Product }) {
                 ? " This SKU remains fixed when you edit the product."
                 : " The SKU and barcode are reserved before product saving."}
             </p>
-            {initial?.sku ? (
-              <Link
-                className="button secondary"
-                href={`/products/${initial.id}/labels`}
-              >
-                Print barcode labels
-              </Link>
-            ) : null}
+            <button
+              type="button"
+              className="button secondary"
+              disabled={!canPrint}
+              onClick={() => setPrintOpen(true)}
+            >
+              <Printer size={17} /> Print barcode labels
+            </button>
+            <p className="field-hint">
+              {canPrint
+                ? "Print the product name, current retail price and barcode without leaving this entry."
+                : "Enter a product name and wait for the barcode before printing."}
+              {initial
+                ? " Save changes to update labels printed from inventory."
+                : " Save this product so its barcode can be found in inventory."}
+            </p>
             {initial && !initial.sku ? (
               <p className="notice">
                 Run the SKU backfill to assign a barcode to this older product.
@@ -642,6 +666,12 @@ export function ProductForm({ initial }: { initial?: Product }) {
           </p>
         </aside>
       </form>
+      {printOpen ? (
+        <LabelPrintDialog
+          product={labelProduct}
+          onClose={() => setPrintOpen(false)}
+        />
+      ) : null}
     </>
   );
 }
