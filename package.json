@@ -1,0 +1,43 @@
+{
+  "name": "snp-inventory",
+  "version": "1.0.0",
+  "description": "Shapes and Pieces jewellery inventory manager",
+  "scripts": {
+    "dev": "next dev --hostname 0.0.0.0",
+    "build": "next build",
+    "start": "next start --hostname 0.0.0.0",
+    "typecheck": "tsc --noEmit",
+    "test": "node --import tsx --test tests/pricing.test.ts tests/database.test.ts",
+    "test:e2e": "playwright test",
+    "password:hash": "node scripts/password-hash.mjs"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1145.0",
+    "@aws-sdk/s3-request-presigner": "^3.1145.0",
+    "@supabase/supabase-js": "^2.117.2",
+    "decimal.js": "^10.6.0",
+    "jose": "^6.2.12",
+    "lucide-react": "^1.50.0",
+    "next": "^16.3.8",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "server-only": "^0.0.1",
+    "zod": "^4.6.5"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "^0.5.8",
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^26.6.4",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2"
+  },
+  "private": true,
+  "engines": {
+    "node": ">=22.0.0 <25"
+  }
+}

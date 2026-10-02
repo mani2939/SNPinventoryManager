@@ -1,0 +1,21 @@
+import type { PricingInput } from "./pricing";
+export type Vendor = { id: string; name: string; active: boolean };
+export type Settings = { id: number; exchange_rate: number | null };
+export type Product = PricingInput & {
+  id: string;
+  item_name: string;
+  description: string;
+  vendor_id: string;
+  entry_date: string;
+  photo_key: string | null;
+  created_at: string;
+  updated_at: string;
+  total_before_discount: number;
+  total_after_discount: number;
+  shipping_amount: number;
+  final_total_inr: number;
+  batch_gbp: number;
+  unit_gbp: number;
+  retail_gbp: number;
+  vendors?: { name: string } | null;
+};
