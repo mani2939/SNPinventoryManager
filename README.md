@@ -37,8 +37,6 @@ Then run:
 npm run dev
 ```
 
-Open http://localhost:3000 and sign in with **SNPAdmin / SNPRocks**. Add vendors and an exchange rate in Settings before entering products. Local demo data and photos live under `.demo-data/`; no sample inventory is preloaded. This mode is disabled when `NODE_ENV=production` or `VERCEL` is set. It is not production persistence.
-
 For real services, copy `.env.example` to `.env.local`, supply the values described below, and set `DEMO_MODE=false`.
 
 ## Connect Neon
