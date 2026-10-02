@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { z } from "zod";
 import { checkOrigin, failure, HttpError } from "@/lib/http";
 import { createSession, demoMode, verifyCredentials } from "@/lib/auth";
-import { db } from "@/lib/supabase";
+import { query } from "@/lib/database";
 const attempts = new Map<string, { count: number; start: number }>();
 export async function POST(req: NextRequest) {
   try {
@@ -30,9 +30,8 @@ export async function POST(req: NextRequest) {
       attempts.set(key, a);
       allowed = a.count <= 10;
     } else {
-      const r = await db().rpc("consume_login_attempt", { attempt_key: key });
-      if (r.error) throw new Error(r.error.message);
-      allowed = r.data === true;
+      const r = await query<{allowed:boolean}>("select consume_login_attempt($1) as allowed",[key]);
+      allowed = r[0]?.allowed === true;
     }
     if (!allowed)
       throw new HttpError(

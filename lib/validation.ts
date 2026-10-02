@@ -35,6 +35,7 @@ export const productSchema = z.object({
     .regex(/^products\/[0-9a-f-]{36}\.webp$/)
     .nullable(),
   updated_at: z.string().optional(),
+  sku_token: z.string().uuid().optional(),
 });
 export const vendorSchema = z.object({
   name: z.string().trim().min(1).max(100),
@@ -42,3 +43,17 @@ export const vendorSchema = z.object({
 export const settingsSchema = z.object({
   exchange_rate: decimal(0.0001, 100000, 4),
 });
+
+export const reservationSchema = productSchema.pick({
+  vendor_id: true,
+  price_inr: true,
+  quantity: true,
+  discount_percent: true,
+  shipping_percent: true,
+});
+export const skuSchema = z
+  .string()
+  .trim()
+  .toUpperCase()
+  .regex(/^[A-Z0-9]{3}-[BACKGROUND]+Z[BACKGROUND]{2}-[0-9]{3}$/)
+  .max(40);

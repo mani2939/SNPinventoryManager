@@ -3,13 +3,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { calculatePricing } from "../lib/pricing";
+import { buildSku } from "../lib/sku";
+import { generateBarcode } from "../lib/barcode";
 test("real PostgreSQL migration, pricing trigger, constraints, RLS and persistent login limiter", async () => {
   const pg = new PGlite();
   try {
-    await pg.exec(
-      "create role anon; create role authenticated; create role service_role bypassrls;",
-    );
-    const sql = await readFile("supabase/migration.sql", "utf8");
+    await pg.exec("create role untrusted;");
+    const sql = await readFile("database/migration.sql", "utf8");
     await pg.exec(sql);
     await pg.exec(sql);
     const v = await pg.query<{ id: string }>(
@@ -46,8 +46,15 @@ test("real PostgreSQL migration, pricing trigger, constraints, RLS and persisten
         exchange_rate: 0.0001,
       },
     ]) {
+      const expected = calculatePricing(input);
+      const sku = buildSku("Test vendor", expected.unit_gbp, 1);
+      const barcode = generateBarcode(sku);
+      await pg.query(
+        "insert into sku_reservations(sku,vendor_id,unit_gbp,exchange_rate,barcode_svg,redeemed) values($1,$2,$3,$4,$5,true)",
+        [sku, vendor, expected.unit_gbp, input.exchange_rate, barcode],
+      );
       const p = await pg.query<Record<string, unknown>>(
-        "insert into products(item_name,vendor_id,price_inr,quantity,discount_percent,shipping_percent,exchange_rate) values($1,$2,$3,$4,$5,$6,$7) returning *",
+        "insert into products(item_name,vendor_id,price_inr,quantity,discount_percent,shipping_percent,exchange_rate,sku,barcode_svg) values($1,$2,$3,$4,$5,$6,$7,$8,$9) returning *",
         [
           "Test product",
           vendor,
@@ -56,11 +63,25 @@ test("real PostgreSQL migration, pricing trigger, constraints, RLS and persisten
           input.discount_percent,
           input.shipping_percent,
           input.exchange_rate,
+          sku,
+          barcode,
         ],
       );
-      const expected = calculatePricing(input);
       for (const [k, value] of Object.entries(expected))
         assert.equal(Number(p.rows[0][k]), value, k);
+      await assert.rejects(() =>
+        pg.query("update products set sku=null where id=$1", [p.rows[0].id]),
+      );
+      await assert.rejects(() =>
+        pg.query("update products set barcode_svg='forged' where id=$1", [
+          p.rows[0].id,
+        ]),
+      );
+      const changed = await pg.query<{ sku: string }>(
+        "update products set price_inr=price_inr/2 where id=$1 returning sku",
+        [p.rows[0].id],
+      );
+      assert.equal(changed.rows[0].sku, sku);
     }
     await assert.rejects(() =>
       pg.query(
@@ -68,8 +89,9 @@ test("real PostgreSQL migration, pricing trigger, constraints, RLS and persisten
         ["Bad", vendor],
       ),
     );
-    await pg.exec("set role anon;");
+    await pg.exec("set role untrusted;");
     await assert.rejects(() => pg.query("select * from products"));
+    await assert.rejects(() => pg.query("select * from sku_reservations"));
     await assert.rejects(() => pg.query("select consume_login_attempt('x')"));
     await pg.exec("reset role;");
     for (let i = 0; i < 10; i++) {

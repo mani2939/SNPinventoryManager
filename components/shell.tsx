@@ -109,7 +109,7 @@ export function Shell({
         ) : null}
         {demo ? (
           <div className="demo-banner">
-            Local demo · Supabase and PeaSoup are not connected. Preview data
+            Local demo · Neon and PeaSoup are not connected. Preview data
             stays on this computer.
           </div>
         ) : null}

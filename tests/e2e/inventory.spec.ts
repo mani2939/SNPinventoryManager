@@ -56,11 +56,18 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await expect(page.getByAltText("Product photo preview")).toBeVisible();
   await expect(page.locator(".gbp-cost strong")).toHaveText("£9.45");
   await expect(page.locator(".retail-cost strong")).toHaveText("£28.35");
+  await expect(page.getByLabel("SKU code")).toHaveValue(/^JAI-NZKG-\d{3}$/);
+  const sku = await page.getByLabel("SKU code").inputValue();
+  await expect(page.getByAltText(`Barcode ${sku}`)).toBeVisible();
   await page.screenshot({
     path: "test-results/product-desktop.png",
     fullPage: true,
   });
+  const saveRequest = page.waitForRequest(
+    (r) => r.url().endsWith("/api/products") && r.method() === "POST",
+  );
   await page.getByRole("button", { name: "Save product", exact: true }).click();
+  const savedBody = (await saveRequest).postDataJSON();
   await expect(page).toHaveURL(/inventory/);
   await expect(page.locator(".success[role=status]")).toContainText(
     "Product saved",
@@ -72,11 +79,124 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await expect(row).toContainText("₹9,450.00");
   await expect(row).toContainText("£9.45");
   await expect(row).toContainText("£28.35");
+  await expect(row).toContainText(sku);
+  const productId = (await row
+    .getByRole("link", { name: `Edit Kundan pearl set ${stamp}` })
+    .getAttribute("href"))!
+    .split("/")
+    .pop();
+  const barcodeResponse = await page.request.get(
+    `/api/products/${productId}/barcode`,
+  );
+  expect(barcodeResponse.status()).toBe(200);
+  const storedSvg = await barcodeResponse.text();
+  expect(storedSvg).toContain("<svg");
+  const retry = await page.request.post("/api/products", {
+    headers: { Origin: "http://127.0.0.1:3010" },
+    data: savedBody,
+  });
+  expect(retry.status()).toBe(201);
+  expect((await retry.json()).id).toBe(productId);
+  const noSku = await page.request.post("/api/products", {
+    headers: { Origin: "http://127.0.0.1:3010" },
+    data: { ...savedBody, sku_token: undefined, photo_key: null },
+  });
+  expect(noSku.status()).toBe(400);
+  const mismatched = await page.request.post("/api/products", {
+    headers: { Origin: "http://127.0.0.1:3010" },
+    data: { ...savedBody, price_inr: 2000, photo_key: null },
+  });
+  expect(mismatched.status()).toBe(409);
+  const concurrent = await Promise.all(
+    Array.from({ length: 10 }, () =>
+      page.request.post("/api/skus", {
+        headers: { Origin: "http://127.0.0.1:3010" },
+        data: savedBody,
+      }),
+    ),
+  );
+  const reserved = await Promise.all(
+    concurrent.map(async (r) => {
+      expect(r.status()).toBe(201);
+      return r.json();
+    }),
+  );
+  expect(new Set(reserved.map((r) => r.sku)).size).toBe(10);
+  expect(reserved.every((r) => r.sku !== sku)).toBe(true);
   const src = await row.locator("img").getAttribute("src");
   expect(src).toBeTruthy();
   const photo = await page.request.get(src!);
   expect(photo.status()).toBe(200);
   expect(photo.headers()["content-type"]).toBe("image/webp");
+  // A keyboard-wedge scanner submits the complete SKU followed by Enter.
+  await page.getByLabel("Scan barcode or enter SKU").fill(sku.toLowerCase());
+  await page.getByLabel("Scan barcode or enter SKU").press("Enter");
+  await expect(row).toBeVisible();
+  await expect(page.locator(".count-pill")).toHaveText("1 products");
+  await page.getByRole("button", { name: "Clear barcode" }).click();
+  // Feed the generated barcode as a camera stream into the real ZXing reader.
+  await page.evaluate((svg) => {
+    Object.defineProperty(navigator.mediaDevices, "getUserMedia", {
+      configurable: true,
+      value: async () => {
+        const canvas = document.createElement("canvas");
+        canvas.width = 1280;
+        canvas.height = 720;
+        const context = canvas.getContext("2d")!;
+        context.fillStyle = "#fff";
+        context.fillRect(0, 0, 1280, 720);
+        const image = new window.Image();
+        image.src =
+          "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg);
+        await image.decode();
+        context.drawImage(image, 220, 260, 840, 200);
+        return canvas.captureStream(10);
+      },
+    });
+  }, storedSvg);
+  await page.getByRole("button", { name: "Use camera" }).click();
+  await expect(page.getByRole("button", { name: "Clear barcode" })).toBeVisible(
+    { timeout: 15000 },
+  );
+  await expect(page.getByLabel("Scan barcode or enter SKU")).toHaveValue(sku);
+  await expect(page.getByLabel("Barcode scanner camera")).not.toBeVisible();
+  await expect(row).toBeVisible();
+  await page.getByRole("button", { name: "Clear barcode" }).click();
+  await row
+    .getByRole("link", { name: `Print labels for Kundan pearl set ${stamp}` })
+    .click();
+  await page.getByLabel("Number of labels").fill("3");
+  await expect(page.locator(".printed-label")).toHaveCount(3);
+  await page.evaluate(() => {
+    window.print = () => {
+      document.documentElement.dataset.printCalled = "yes";
+    };
+  });
+  await page.getByRole("button", { name: "Print labels", exact: true }).click();
+  expect(await page.locator("html").getAttribute("data-print-called")).toBe(
+    "yes",
+  );
+  await page.screenshot({
+    path: "test-results/labels-desktop.png",
+    fullPage: true,
+  });
+  await page.emulateMedia({ media: "print" });
+  await expect(page.locator(".print-controls")).not.toBeVisible();
+  await page.pdf({
+    path: "test-results/labels-70x40.pdf",
+    preferCSSPageSize: true,
+    printBackground: true,
+  });
+  await page.emulateMedia({ media: "screen" });
+  await page.getByLabel("Label size").selectOption("100x50");
+  await page.emulateMedia({ media: "print" });
+  await page.pdf({
+    path: "test-results/labels-100x50.pdf",
+    preferCSSPageSize: true,
+    printBackground: true,
+  });
+  await page.emulateMedia({ media: "screen" });
+  await page.goto("/inventory");
   await page
     .getByLabel("Vendor", { exact: true })
     .selectOption({ label: vendorB });
@@ -102,10 +222,16 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
     .click();
   await expect(page.locator(".exchange-note")).toContainText("₹100");
   await page.getByLabel("Quantity").fill("5");
+  await page.getByLabel("Price per piece (INR)").fill("2000");
+  await expect(page.getByLabel("SKU code")).toHaveValue(sku);
   await page.getByRole("button", { name: "Save changes" }).click();
   await expect(page).toHaveURL(/inventory/);
-  await expect(row).toContainText("₹4,725.00");
-  await expect(row).toContainText("£9.45");
+  await expect(row).toContainText("₹9,450.00");
+  await expect(row).toContainText("£18.90");
+  await expect(row).toContainText(sku);
+  expect(
+    await (await page.request.get(`/api/products/${productId}/barcode`)).text(),
+  ).toBe(storedSvg);
   await page.setViewportSize({ width: 390, height: 844 });
   await page.screenshot({
     path: "test-results/inventory-mobile.png",
@@ -130,6 +256,7 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await page.getByLabel("Price per piece (INR)").fill("1200");
   await expect(page.locator(".gbp-cost strong")).toHaveText("£10.00");
   await expect(page.locator(".retail-cost strong")).toHaveText("£30.00");
+  await expect(page.getByLabel("SKU code")).toHaveValue(/^MUM-BDZDD-\d{3}$/);
   await page.screenshot({
     path: "test-results/product-mobile.png",
     fullPage: true,

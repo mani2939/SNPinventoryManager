@@ -13,7 +13,9 @@ import {
 } from "lucide-react";
 import { api, money, today } from "@/lib/client";
 import { calculatePricing } from "@/lib/pricing";
-import type { Product, Vendor, Settings } from "@/lib/types";
+import { BarcodePreview } from "./barcode-preview";
+import { reservationSchema } from "@/lib/validation";
+import type { SkuReservation, Product, Vendor, Settings } from "@/lib/types";
 type Form = {
   item_name: string;
   description: string;
@@ -98,6 +100,10 @@ export function ProductForm({ initial }: { initial?: Product }) {
   const [preview, setPreview] = useState(
     initial?.photo_key ? `/api/products/${initial.id}/photo` : "",
   );
+  const [reservation, setReservation] = useState<SkuReservation | null>(null);
+  const [skuBusy, setSkuBusy] = useState(false);
+  const [skuError, setSkuError] = useState("");
+  const [skuRetry, setSkuRetry] = useState(0);
   const fileRef = useRef<HTMLInputElement>(null);
   const blobUrl = useRef("");
   useEffect(() => {
@@ -152,6 +158,62 @@ export function ProductForm({ initial }: { initial?: Product }) {
           exchange_rate: 1,
         },
   );
+  const reservationInput = {
+    vendor_id: form.vendor_id,
+    price_inr: Number(form.price_inr),
+    quantity: Number(form.quantity),
+    discount_percent: Number(form.discount_percent),
+    shipping_percent: Number(form.shipping_percent),
+  };
+  const canReserve =
+    !loading && !!rate && reservationSchema.safeParse(reservationInput).success;
+  const identityFingerprint = JSON.stringify([
+    form.vendor_id,
+    totals.unit_gbp,
+    canReserve,
+  ]);
+  const reservationReady =
+    !!reservation &&
+    reservation.vendor_id === form.vendor_id &&
+    reservation.unit_gbp === totals.unit_gbp;
+  useEffect(() => {
+    if (initial) return;
+    if (!canReserve) {
+      setReservation(null);
+      setSkuBusy(false);
+      return;
+    }
+    if (reservationReady) return;
+    const controller = new AbortController();
+    setSkuBusy(true);
+    setSkuError("");
+    setReservation(null);
+    const timer = setTimeout(() => {
+      api<SkuReservation>("/api/skus", {
+        method: "POST",
+        body: JSON.stringify(reservationInput),
+        signal: controller.signal,
+      })
+        .then((r) => {
+          if (!controller.signal.aborted) {
+            setReservation(r);
+            setRate(r.exchange_rate);
+          }
+        })
+        .catch((e) => {
+          if (e.name !== "AbortError") setSkuError(e.message);
+        })
+        .finally(() => {
+          if (!controller.signal.aborted) setSkuBusy(false);
+        });
+    }, 500);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+    // The cost and vendor define the SKU; other detail edits do not reserve new numbers.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [identityFingerprint, initial, skuRetry]);
   async function selectPhoto(file?: File) {
     if (!file) return;
     setPhotoBusy(true);
@@ -174,6 +236,10 @@ export function ProductForm({ initial }: { initial?: Product }) {
     setBusy(true);
     setError("");
     try {
+      if (!initial && (!reservationReady || skuBusy))
+        throw new Error(
+          "Wait for the SKU and barcode to be generated before saving.",
+        );
       let key = photoKey;
       if (photo) {
         const upload = await api<{
@@ -202,6 +268,7 @@ export function ProductForm({ initial }: { initial?: Product }) {
         ...numbers,
         photo_key: key,
         updated_at: initial?.updated_at,
+        sku_token: reservation?.token,
       };
       await api(initial ? `/api/products/${initial.id}` : "/api/products", {
         method: initial ? "PUT" : "POST",
@@ -422,6 +489,83 @@ export function ProductForm({ initial }: { initial?: Product }) {
               Shipping is calculated on the total after discount.
             </p>
           </section>
+          <section className="card sku-card">
+            <div className="section-title">
+              <span className="section-icon">
+                <Package size={19} />
+              </span>
+              <div>
+                <h2>SKU & barcode</h2>
+                <p>
+                  {initial
+                    ? "Your saved product identifier."
+                    : "Generated automatically from vendor and GBP cost per piece."}
+                </p>
+              </div>
+            </div>
+            <label>
+              SKU code
+              <input
+                readOnly
+                value={
+                  initial?.sku || (reservationReady ? reservation!.sku : "")
+                }
+                placeholder={
+                  skuBusy
+                    ? "Generating SKU…"
+                    : "Enter vendor and purchase costs first"
+                }
+              />
+            </label>
+            {initial?.barcode_svg && initial.sku ? (
+              <BarcodePreview sku={initial.sku} svg={initial.barcode_svg} />
+            ) : reservationReady ? (
+              <BarcodePreview
+                sku={reservation!.sku}
+                svg={reservation!.barcode_svg}
+              />
+            ) : (
+              <p className="field-hint" role="status">
+                {skuBusy
+                  ? "Reserving a unique SKU and saving its barcode…"
+                  : "The barcode will appear here before you save the product."}
+              </p>
+            )}
+            {skuError ? (
+              <>
+                <p role="alert" className="error">
+                  {skuError}
+                </p>
+                <button
+                  type="button"
+                  className="button secondary"
+                  onClick={() => setSkuRetry((n) => n + 1)}
+                >
+                  Retry barcode
+                </button>
+              </>
+            ) : null}
+            <p className="field-hint">
+              BACKGROUND encodes digits 1–9, 0. Z represents the decimal point;
+              pence always have two digits.
+              {initial
+                ? " This SKU remains fixed when you edit the product."
+                : " The SKU and barcode are reserved before product saving."}
+            </p>
+            {initial?.sku ? (
+              <Link
+                className="button secondary"
+                href={`/products/${initial.id}/labels`}
+              >
+                Print barcode labels
+              </Link>
+            ) : null}
+            {initial && !initial.sku ? (
+              <p className="notice">
+                Run the SKU backfill to assign a barcode to this older product.
+              </p>
+            ) : null}
+          </section>
         </div>
         <aside className="cost-summary">
           <div className="cost-summary-top">
@@ -481,6 +625,7 @@ export function ProductForm({ initial }: { initial?: Product }) {
               busy ||
               photoBusy ||
               loading ||
+              (!initial && (!reservationReady || skuBusy)) ||
               !rate ||
               !vendors.some((v) => v.active || v.id === initial?.vendor_id)
             }

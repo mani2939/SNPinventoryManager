@@ -13,14 +13,17 @@ import {
   ChevronLeft,
   ChevronRight,
   X,
+  Printer,
 } from "lucide-react";
 import { api, money, displayDate } from "@/lib/client";
+import { BarcodeLookup } from "./barcode-lookup";
 import type { Product, Vendor } from "@/lib/types";
 export function InventoryTable() {
   const [rows, setRows] = useState<Product[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [count, setCount] = useState(0);
   const [page, setPage] = useState(1);
+  const [sku, setSku] = useState("");
   const [vendor, setVendor] = useState("");
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -52,6 +55,7 @@ export function InventoryTable() {
     setLoading(true);
     setError("");
     const q = new URLSearchParams({ page: String(page) });
+    if (sku) q.set("sku", sku);
     if (vendor) q.set("vendor", vendor);
     if (from) q.set("from", from);
     if (to) q.set("to", to);
@@ -73,7 +77,7 @@ export function InventoryTable() {
         if (!controller.signal.aborted) setLoading(false);
       });
     return () => controller.abort();
-  }, [page, vendor, from, to, refresh]);
+  }, [page, vendor, from, to, sku, refresh]);
   async function remove() {
     if (!deleting) return;
     setBusy(true);
@@ -123,6 +127,20 @@ export function InventoryTable() {
           {error}
         </p>
       ) : null}
+      <BarcodeLookup
+        active={sku}
+        clear={() => {
+          setSku("");
+          setPage(1);
+        }}
+        onLookup={(code) => {
+          setSku(code);
+          setVendor("");
+          setFrom("");
+          setTo("");
+          setPage(1);
+        }}
+      />
       <div className="stats-grid">
         <div className="stat-card">
           <span className="stat-icon">
@@ -206,13 +224,14 @@ export function InventoryTable() {
               }}
             />
           </label>
-          {vendor || from || to ? (
+          {vendor || from || to || sku ? (
             <button
               className="text-button"
               onClick={() => {
                 setVendor("");
                 setFrom("");
                 setTo("");
+                setSku("");
                 setPage(1);
               }}
             >
@@ -229,13 +248,13 @@ export function InventoryTable() {
           <div className="table-empty">
             <Gem size={42} />
             <h3>
-              {count === 0 && (vendor || from || to)
+              {count === 0 && (vendor || from || to || sku)
                 ? "No products match these filters"
                 : "Your collection starts here"}
             </h3>
             <p>
-              {vendor || from || to
-                ? "Try another vendor or date range."
+              {vendor || from || to || sku
+                ? "Try another barcode, vendor or date range."
                 : "Add a vendor and exchange rate in Settings, then record your first piece."}
             </p>
             <Link href="/products/new" className="button primary">
@@ -254,6 +273,7 @@ export function InventoryTable() {
               <thead>
                 <tr>
                   <th>Product</th>
+                  <th>SKU</th>
                   <th>Vendor</th>
                   <th>Date</th>
                   <th>Price · INR</th>
@@ -297,6 +317,11 @@ export function InventoryTable() {
                         </div>
                       </div>
                     </td>
+                    <td>
+                      <code className="sku-cell">
+                        {p.sku || "Awaiting SKU backfill"}
+                      </code>
+                    </td>
                     <td>{p.vendors?.name || "—"}</td>
                     <td>{displayDate(p.entry_date)}</td>
                     <td>{money(p.price_inr, "INR")}</td>
@@ -321,6 +346,15 @@ export function InventoryTable() {
                     </td>
                     <td>
                       <div className="row-actions">
+                        {p.sku ? (
+                          <Link
+                            href={`/products/${p.id}/labels`}
+                            className="icon-button"
+                            aria-label={`Print labels for ${p.item_name}`}
+                          >
+                            <Printer size={16} />
+                          </Link>
+                        ) : null}
                         <Link
                           href={`/products/${p.id}`}
                           className="icon-button"

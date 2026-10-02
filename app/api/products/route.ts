@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { z } from "zod";
 import { guard, failure, HttpError } from "@/lib/http";
 import { listProducts, saveProduct } from "@/lib/repository";
-import { productSchema } from "@/lib/validation";
+import { productSchema, skuSchema } from "@/lib/validation";
 import { verifyPhoto } from "@/lib/storage";
 export async function GET(req: NextRequest) {
   try {
@@ -20,12 +20,14 @@ export async function GET(req: NextRequest) {
           .regex(/^\d{4}-\d{2}-\d{2}$/)
           .optional(),
         page: z.coerce.number().int().min(1).max(100000),
+        sku: skuSchema.optional(),
       })
       .parse({
         vendor: p.get("vendor") || undefined,
         from: p.get("from") || undefined,
         to: p.get("to") || undefined,
         page: p.get("page") || 1,
+        sku: p.get("sku") || undefined,
       });
     if (f.from && f.to && f.from > f.to)
       throw new HttpError("The start date must be before the end date.");
