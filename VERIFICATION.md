@@ -73,3 +73,9 @@ Physical barcode scanners, device camera permissions/focus and label printers ne
 Browser verification used Chromium and Playwright against the development server in the same execution context because the general agent-browser CLI could not start here. Temporary Chromium tooling is excluded from application dependencies.
 
 Screenshots contain illustrative test products and use the supplied logo as the photo fixture. Test inventory, local photos, credentials, build output, test output and node_modules are excluded from the source archive.
+
+## Settings card positioning
+
+- Exchange rate and Product types now share an independent stacked column. The Vendors card stays in the adjacent column on desktop; a long vendor list cannot push Product types down.
+- Browser checks passed at 1440, 1024, 768 and 390 px: Product types aligns with Exchange rate, with a 24 px gap (20 px on phone), no horizontal overflow and no page errors. Desktop Vendors aligns at the top; mobile order is Exchange rate, Product types, Vendors. Desktop/mobile screenshots were visually inspected.
+- Production build and TypeScript compilation passed. These are local layout checks; redeploy the updated source to apply the change.

@@ -699,6 +699,11 @@ label select {
   gap: 24px;
   align-items: start;
 }
+.settings-column {
+  display: grid;
+  gap: 24px;
+  min-width: 0;
+}
 .exchange-display {
   display: flex;
   gap: 12px;
@@ -1391,7 +1396,8 @@ tbody tr:hover {
   .main-content {
     padding: 24px 16px;
   }
-  .settings-layout {
+  .settings-layout,
+  .settings-column {
     gap: 20px;
   }
   .modal-actions {

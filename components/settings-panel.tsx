@@ -68,64 +68,73 @@ export function SettingsPanel() {
         </div>
       ) : (
         <div className="settings-layout">
-          <section className="card">
-            <div className="section-title">
-              <span className="section-icon">
-                <ArrowRightLeft size={19} />
-              </span>
-              <div>
-                <h2>Exchange rate</h2>
-                <p>Convert your purchase costs to pounds.</p>
+          <div className="settings-column">
+            <section className="card">
+              <div className="section-title">
+                <span className="section-icon">
+                  <ArrowRightLeft size={19} />
+                </span>
+                <div>
+                  <h2>Exchange rate</h2>
+                  <p>Convert your purchase costs to pounds.</p>
+                </div>
               </div>
-            </div>
-            <form
-              onSubmit={(e) => {
-                e.preventDefault();
-                void action(
-                  "rate",
-                  () =>
-                    api("/api/config", {
-                      method: "PATCH",
-                      body: JSON.stringify({ exchange_rate: Number(rate) }),
-                    }),
-                  "Exchange rate updated. Existing products keep their saved rate.",
-                );
-              }}
-            >
-              <div className="exchange-display">
-                <span>£1</span>
-                <span>=</span>
-                <span>₹</span>
-                <input
-                  aria-label="INR per 1 GBP"
-                  type="number"
-                  value={rate}
-                  onChange={(e) => setRate(e.target.value)}
-                  step="0.0001"
-                  min="0.0001"
-                  max="100000"
-                  required
-                  placeholder="Enter rate"
-                />
-              </div>
-              <p className="field-hint">
-                INR per £1 · Enter your purchase exchange rate.
-              </p>
-              <div className="rule-note">
-                <strong>Your pricing rule</strong>
-                <p>
-                  Final INR total ÷ quantity ÷ exchange rate = GBP cost per
-                  piece.
-                  <br />
-                  Retail price = GBP cost per piece × 3.
+              <form
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void action(
+                    "rate",
+                    () =>
+                      api("/api/config", {
+                        method: "PATCH",
+                        body: JSON.stringify({ exchange_rate: Number(rate) }),
+                      }),
+                    "Exchange rate updated. Existing products keep their saved rate.",
+                  );
+                }}
+              >
+                <div className="exchange-display">
+                  <span>£1</span>
+                  <span>=</span>
+                  <span>₹</span>
+                  <input
+                    aria-label="INR per 1 GBP"
+                    type="number"
+                    value={rate}
+                    onChange={(e) => setRate(e.target.value)}
+                    step="0.0001"
+                    min="0.0001"
+                    max="100000"
+                    required
+                    placeholder="Enter rate"
+                  />
+                </div>
+                <p className="field-hint">
+                  INR per £1 · Enter your purchase exchange rate.
                 </p>
+                <div className="rule-note">
+                  <strong>Your pricing rule</strong>
+                  <p>
+                    Final INR total ÷ quantity ÷ exchange rate = GBP cost per
+                    piece.
+                    <br />
+                    Retail price = GBP cost per piece × 3.
+                  </p>
+                </div>
+                <button className="button primary" disabled={!!busy}>
+                  <Save size={17} />
+                  {busy === "rate" ? "Saving…" : "Save exchange rate"}
+                </button>
+              </form>
+            </section>
+            <section className="card">
+              <div className="section-title">
+                <span className="section-icon"><Tags size={19} /></span>
+                <div><h2>Product types</h2><p>Classify pieces in the product details dropdown.</p></div>
               </div>
-              <button className="button primary" disabled={!!busy}>
-                <Save size={17} />
-                {busy === "rate" ? "Saving…" : "Save exchange rate"}
-              </button>
-            </form>
-          </section>
+              <ConfigurationList kind="type" entries={productTypes} busy={busy} action={action} />
+            </section>
+          </div>
           <section className="card">
             <div className="section-title">
               <span className="section-icon">
@@ -137,13 +146,6 @@ export function SettingsPanel() {
               </div>
             </div>
             <ConfigurationList kind="vendor" entries={vendors} busy={busy} action={action} />
-          </section>
-          <section className="card">
-            <div className="section-title">
-              <span className="section-icon"><Tags size={19} /></span>
-              <div><h2>Product types</h2><p>Classify pieces in the product details dropdown.</p></div>
-            </div>
-            <ConfigurationList kind="type" entries={productTypes} busy={busy} action={action} />
           </section>
         </div>
       )}
