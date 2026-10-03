@@ -15,6 +15,7 @@ export async function POST(req: NextRequest) {
       .object({
         username: z.string().min(1).max(100),
         password: z.string().min(1).max(200),
+        workspace: z.enum(["inventory","invoicing"]).default("inventory"),
       })
       .parse(await req.json());
     stage = "configuration";
@@ -48,8 +49,8 @@ export async function POST(req: NextRequest) {
     if (!verifyCredentials(body.username, body.password))
       throw new HttpError("Username or password is incorrect.", 401);
     stage = "session";
-    await createSession();
-    return NextResponse.json({ ok: true });
+    await createSession(body.workspace);
+    return NextResponse.json({ ok: true, redirect: body.workspace === "invoicing" ? "/invoices" : "/inventory" });
   } catch (e) {
     if (e instanceof ZodError || e instanceof HttpError) return failure(e);
     if (e instanceof SyntaxError && stage === "request")

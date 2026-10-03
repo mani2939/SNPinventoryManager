@@ -25,7 +25,7 @@ test("deployment migration creates the schema and preserves a saved product on r
   try {
     const sql = await files();
     const first = await applyMigration(clientFor(pg), sql);
-    assert.equal(first.app_tables, 6);
+    assert.equal(first.app_tables, 9);
     const vendor = (await pg.query("insert into vendors(name,pseudo_code) values('Test','V01') returning id")).rows[0].id;
     await pg.query("update settings set exchange_rate=100 where id=1");
     const sku = "V01-BAZCK-001", svg = generateBarcode(sku);
@@ -33,7 +33,7 @@ test("deployment migration creates the schema and preserves a saved product on r
     await pg.query("insert into products(item_name,vendor_id,price_inr,quantity,exchange_rate,sku,barcode_svg) values('Saved necklace',$1,1234,1,100,$2,$3)",[vendor,sku,svg]);
     const original = (await pg.query("select * from products")).rows[0];
     const second = await applyMigration(clientFor(pg), sql);
-    assert.equal(second.app_tables,6);
+    assert.equal(second.app_tables,9);
     assert.equal(second.configured_inr_per_gbp,"100.0000");
     assert.deepEqual((await pg.query("select * from products")).rows[0], original);
   } finally { await pg.close(); }

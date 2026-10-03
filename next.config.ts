@@ -1,6 +1,7 @@
 import type { NextConfig } from "next";
 const config: NextConfig = {
   poweredByHeader: false,
+  outputFileTracingIncludes: {"/api/invoices/**": ["./assets/invoice-fonts/*", "./assets/invoice-logo.png"]},
   allowedDevOrigins: ["127.0.0.1"],
   async headers() {
     return [

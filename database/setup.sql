@@ -1,4 +1,3 @@
--- Complete idempotent inventory setup and upgrade. Run as the database owner.
 begin;
 create table if not exists public.vendors (
  id uuid primary key default gen_random_uuid(), name text not null check(length(name) between 1 and 100), active boolean not null default true,
@@ -132,6 +131,75 @@ end; $$;
 drop trigger if exists product_identity_guard on public.products;
 create trigger product_identity_guard before insert or update on public.products for each row execute function public.protect_product_identity();
 revoke all on function public.protect_product_identity() from public;
+create table if not exists public.invoice_settings (
+ id integer primary key check(id=1), profile text check(profile is null or profile like 'v1.%')
+);
+insert into public.invoice_settings(id,profile) values(1,null) on conflict(id) do nothing;
+create sequence if not exists public.invoice_number_sequence;
+create table if not exists public.invoices (
+ id uuid primary key default gen_random_uuid(), request_token uuid not null unique, payload_hash text not null,
+ invoice_number text not null unique, invoice_date date not null, due_date date not null check(due_date>=invoice_date),
+ customer_data text not null check(customer_data like 'v1.%'), customer_name_index text[] not null, privacy_redacted_at timestamptz,
+ shipping_gbp numeric(20,2) not null default 0 check(shipping_gbp>=0), items jsonb not null, seller text not null check(seller like 'v1.%'),
+ subtotal_gbp numeric(20,2) not null default 0, discount_gbp numeric(20,2) not null default 0, total_gbp numeric(20,2) not null default 0,
+ status text not null default 'unpaid' check(status in ('unpaid','paid','void')),
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+create index if not exists invoices_date_idx on public.invoices(invoice_date desc,created_at desc,id);
+create index if not exists invoices_customer_name_idx on public.invoices using gin(customer_name_index);
+create table if not exists public.invoice_deliveries (
+ id uuid primary key default gen_random_uuid(), invoice_id uuid not null references public.invoices(id), request_token uuid not null unique,
+ recipient text check(recipient like 'v1.%'), recipient_hash text,
+ status text not null check(status in ('sending','accepted','failed','uncertain')),
+ message_id text, error text, consent_confirmed_at timestamptz not null default now(), created_at timestamptz not null default now(),updated_at timestamptz not null default now()
+);
+create index if not exists invoice_deliveries_invoice_idx on public.invoice_deliveries(invoice_id,created_at desc);
+create unique index if not exists invoice_delivery_active_unique on public.invoice_deliveries(invoice_id,recipient_hash) where status='sending';
+create or replace function public.calculate_invoice() returns trigger language plpgsql set search_path=public as $$
+declare item jsonb; enriched jsonb:='[]'; before_amount numeric; after_amount numeric; qty numeric; price numeric; discount numeric; sequence_number text;
+begin
+ if TG_OP='UPDATE' then
+  if (new.id,new.request_token,new.invoice_number,new.invoice_date,new.due_date,new.shipping_gbp,new.seller,new.subtotal_gbp,new.discount_gbp,new.total_gbp,new.created_at)
+   is distinct from (old.id,old.request_token,old.invoice_number,old.invoice_date,old.due_date,old.shipping_gbp,old.seller,old.subtotal_gbp,old.discount_gbp,old.total_gbp,old.created_at) then
+   raise exception 'Saved invoice financial details are immutable.';
+  end if;
+  if old.privacy_redacted_at is null and new.privacy_redacted_at is not null and cardinality(new.customer_name_index)=0 then
+   if exists(select 1 from invoice_deliveries where invoice_id=old.id and status='sending') then raise exception 'A WhatsApp send is in progress';end if;
+   if new.payload_hash<>'redacted' or jsonb_array_length(new.items)<>jsonb_array_length(old.items) then raise exception 'Invalid customer redaction';end if;
+   if exists(select 1 from jsonb_array_elements(new.items) with ordinality n(item,pos) join jsonb_array_elements(old.items) with ordinality o(item,pos) using(pos) where (n.item-'description') is distinct from (o.item-'description')) then raise exception 'Redaction cannot change item financial details';end if;
+  elsif (new.customer_data,new.customer_name_index,new.privacy_redacted_at,new.items,new.payload_hash) is distinct from (old.customer_data,old.customer_name_index,old.privacy_redacted_at,old.items,old.payload_hash) then
+   raise exception 'Customer data and items can only be changed by explicit redaction.';
+  end if;
+  if new.status='void' and old.status<>'void' and exists(select 1 from invoice_deliveries where invoice_id=old.id and status='sending') then raise exception 'A WhatsApp send is in progress';end if;
+  if old.status='void' and new.status<>'void' then raise exception 'A void invoice cannot be reopened.';end if;
+  new.updated_at:=clock_timestamp();return new;
+ end if;
+ if jsonb_typeof(new.items)<>'array' or jsonb_array_length(new.items) not between 1 and 200 then raise exception 'Invoice requires between 1 and 200 items';end if;
+ if new.seller not like 'v1.%' then raise exception 'Encrypted invoice seller is required';end if;
+ sequence_number:=nextval('public.invoice_number_sequence')::text;
+ new.invoice_number:='SNP-'||to_char(new.invoice_date,'YYYYMMDD')||'-'||lpad(sequence_number,greatest(8,length(sequence_number)),'0');
+ new.subtotal_gbp:=0;new.discount_gbp:=0;new.total_gbp:=0;
+ for item in select * from jsonb_array_elements(new.items) loop
+  if jsonb_typeof(item->'quantity') is distinct from 'number' or jsonb_typeof(item->'unit_price') is distinct from 'number' or jsonb_typeof(item->'discount_percent') is distinct from 'number'
+   or coalesce(length(item->>'description'),0) not between 12 and 3000 or (item->>'description') not like 'v1.%' then raise exception 'Invalid invoice item';end if;
+  qty:=(item->>'quantity')::numeric;price:=(item->>'unit_price')::numeric;discount:=(item->>'discount_percent')::numeric;
+  if qty not between 1 and 100000 or qty<>trunc(qty) or price not between 0 and 100000000 or price<>round(price,2)
+   or discount not between 0 and 100 or discount<>round(discount,2) then raise exception 'Invalid invoice quantity, price or discount';end if;
+  before_amount:=round(price*qty,2);after_amount:=round(before_amount*(1-discount/100),2);
+  enriched:=enriched||jsonb_build_array(item||jsonb_build_object('line_total',after_amount,'discount_amount',before_amount-after_amount));
+  new.subtotal_gbp:=new.subtotal_gbp+before_amount;new.discount_gbp:=new.discount_gbp+before_amount-after_amount;new.total_gbp:=new.total_gbp+after_amount;
+ end loop;
+ new.items:=enriched;new.total_gbp:=new.total_gbp+new.shipping_gbp;
+ return new;
+end $$;
+drop trigger if exists invoice_calculation_guard on public.invoices;
+create trigger invoice_calculation_guard before insert or update on public.invoices for each row execute function public.calculate_invoice();
+alter table public.invoice_settings enable row level security;
+alter table public.invoices enable row level security;
+alter table public.invoice_deliveries enable row level security;
+revoke all on public.invoice_settings,public.invoices,public.invoice_deliveries from public;
+revoke all on sequence public.invoice_number_sequence from public;
+revoke all on function public.calculate_invoice() from public;
 
 -- Read-only schema checks. Also included inside setup.sql's transaction.
 do $$
@@ -144,6 +212,7 @@ begin
   select * from (values
    ('vendors','id','uuid'),('vendors','name','text'),('vendors','pseudo_code','text'),('vendors','active','boolean'),('vendors','created_at','timestamp with time zone'),
    ('product_types','id','uuid'),('product_types','name','text'),('product_types','active','boolean'),('product_types','created_at','timestamp with time zone'),('products','product_type_id','uuid'),
+   ('invoice_settings','id','integer'),('invoice_settings','profile','text'),('invoices','id','uuid'),('invoices','invoice_number','text'),('invoices','items','jsonb'),('invoices','seller','text'),('invoices','customer_data','text'),('invoices','customer_name_index','text[]'),('invoices','privacy_redacted_at','timestamp with time zone'),('invoices','total_gbp','numeric(20,2)'),('invoice_deliveries','id','uuid'),('invoice_deliveries','request_token','uuid'),('invoice_deliveries','invoice_id','uuid'),('invoice_deliveries','status','text'),('invoice_deliveries','recipient','text'),('invoice_deliveries','recipient_hash','text'),('invoice_deliveries','consent_confirmed_at','timestamp with time zone'),('invoices','request_token','uuid'),('invoices','payload_hash','text'),('invoices','invoice_date','date'),('invoices','due_date','date'),('invoices','status','text'),
    ('settings','id','integer'),('settings','exchange_rate','numeric(12,4)'),
    ('products','id','uuid'),('products','item_name','text'),('products','description','text'),('products','vendor_id','uuid'),('products','entry_date','date'),
    ('products','price_inr','numeric(12,2)'),('products','quantity','integer'),('products','discount_percent','numeric(5,2)'),('products','shipping_percent','numeric(6,2)'),
@@ -164,7 +233,7 @@ begin
   end if;
  end loop;
 
- for required in select unnest(array['vendors','product_types','settings','products','sku_reservations','login_limits']) as table_name loop
+ for required in select unnest(array['vendors','product_types','settings','products','sku_reservations','login_limits','invoice_settings','invoices','invoice_deliveries']) as table_name loop
   relation_id:=to_regclass('public.'||required.table_name);
   if not exists(select 1 from pg_constraint where conrelid=relation_id and contype='p') then
    raise exception 'Missing primary key on %',required.table_name;
@@ -175,7 +244,7 @@ begin
  end loop;
 
  for required in select * from (values
-  ('products','vendor_id','vendors'),('products','product_type_id','product_types'),('products','sku','sku_reservations'),('sku_reservations','vendor_id','vendors')
+  ('invoice_deliveries','invoice_id','invoices'),('products','vendor_id','vendors'),('products','product_type_id','product_types'),('products','sku','sku_reservations'),('sku_reservations','vendor_id','vendors')
  ) as expected(table_name,column_name,parent_table) loop
   if not exists(
    select 1 from pg_constraint c join pg_attribute a on a.attrelid=c.conrelid and a.attnum=any(c.conkey)
@@ -185,7 +254,7 @@ begin
  end loop;
 
  for required in select * from (values
-  ('vendors_name_unique',true),('products_photo_unique',true),('products_sku_unique',true),
+  ('invoices_request_token_key',true),('invoices_invoice_number_key',true),('invoices_date_idx',false),('invoice_deliveries_request_token_key',true),('invoice_deliveries_invoice_idx',false),('vendors_name_unique',true),('products_photo_unique',true),('products_sku_unique',true),
   ('vendors_pseudo_code_unique',true),('product_types_name_unique',true),('products_product_type_idx',false),
   ('sku_reservations_token_key',true),('products_vendor_date_idx',false),('products_date_idx',false)
  ) as expected(index_name,must_be_unique) loop
@@ -201,6 +270,8 @@ begin
    raise exception 'Missing or disabled product trigger: %',required.trigger_name;
   end if;
  end loop;
+ if not exists(select 1 from pg_trigger where tgrelid='public.invoices'::regclass and tgname='invoice_calculation_guard' and tgenabled in ('O','A') and tgfoid=to_regprocedure('public.calculate_invoice()')) then raise exception 'Missing invoice pricing/identity trigger';end if;
+ if not exists(select 1 from invoice_settings where id=1) then raise exception 'Missing invoice settings';end if;
  if to_regprocedure('public.consume_login_attempt(text)') is null then raise exception 'Missing persistent login limiter';end if;
  if not exists(select 1 from public.settings where id=1) then raise exception 'Missing settings singleton';end if;
  if not exists(select 1 from pg_attribute where attrelid='public.vendors'::regclass and attname='pseudo_code' and attnotnull)
@@ -211,17 +282,17 @@ begin
 
  if exists(
   select 1 from pg_proc p cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
-  where p.oid=any(array[to_regprocedure('public.consume_login_attempt(text)'),to_regprocedure('public.calculate_product_prices()'),to_regprocedure('public.protect_product_identity()'),to_regprocedure('public.validate_product_type()')])
+  where p.oid=any(array[to_regprocedure('public.consume_login_attempt(text)'),to_regprocedure('public.calculate_product_prices()'),to_regprocedure('public.protect_product_identity()'),to_regprocedure('public.validate_product_type()'),to_regprocedure('public.calculate_invoice()')])
    and a.grantee=0 and a.privilege_type='EXECUTE'
  ) then raise exception 'Public execution is enabled on an app function';end if;
 end $$;
 
 -- The schema status is separate from values that you set in the app's Settings.
 select 'schema verified' as schema_status,current_database() as database_name,current_user as sql_role,
- (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('vendors','product_types','settings','products','sku_reservations','login_limits') and c.relkind='r') as app_tables,
+ (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('vendors','product_types','settings','products','sku_reservations','login_limits','invoice_settings','invoices','invoice_deliveries') and c.relkind='r') as app_tables,
  (select exchange_rate from public.settings where id=1) as configured_inr_per_gbp,
  (select count(*) from public.vendors where active) as active_vendors,
  (select count(*) from public.product_types where active) as active_product_types,
  (select count(*) from public.products where sku is null or barcode_svg is null) as products_needing_sku_backfill;
 
-commit;
+COMMIT;

@@ -34,8 +34,8 @@ export function verifyCredentials(username: string, password: string) {
   );
   return matches && username === expectedUser;
 }
-export async function createSession() {
-  const token = await new SignJWT({ role: "admin" })
+export async function createSession(workspace: "inventory" | "invoicing" = "inventory") {
+  const token = await new SignJWT({ role: "admin", workspace })
     .setProtectedHeader({ alg: "HS256" })
     .setSubject("snp-admin")
     .setIssuer("snp-inventory")
@@ -64,4 +64,10 @@ export async function authenticated() {
   } catch {
     return false;
   }
+}
+
+export async function preferredWorkspace() {
+ const token=(await cookies()).get('snp_session')?.value;
+ if(!token)return '/login';
+ try{const {payload}=await jwtVerify(token,secret(),{algorithms:['HS256'],issuer:'snp-inventory',audience:'snp-inventory'});if(payload.role!=='admin'||payload.sub!=='snp-admin')return '/login';return payload.workspace==='invoicing'?'/invoices':'/inventory';}catch{return '/login';}
 }

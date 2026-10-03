@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation";
 import Image from "next/image";
-import { authenticated, demoMode } from "@/lib/auth";
+import { authenticated, demoMode, preferredWorkspace } from "@/lib/auth";
 import { LoginForm } from "@/components/login-form";
 export default async function Login() {
-  if (await authenticated()) redirect("/inventory");
+  if (await authenticated()) redirect(await preferredWorkspace());
   return (
     <main className="login-page">
       <section className="login-brand">
@@ -27,9 +27,9 @@ export default async function Login() {
       </section>
       <section className="login-panel">
         <div className="login-card">
-          <span className="eyebrow">YOUR INVENTORY WORKSPACE</span>
+          <span className="eyebrow">YOUR BUSINESS WORKSPACE</span>
           <h2>Welcome back</h2>
-          <p className="muted">Sign in to manage your jewellery collection.</p>
+          <p className="muted">Choose a workspace to manage inventory or customer invoices.</p>
           <LoginForm />
           {demoMode() ? (
             <p className="notice">
@@ -37,7 +37,7 @@ export default async function Login() {
             </p>
           ) : null}
           <p className="login-footer">
-            Shapes & Pieces <span>Inventory management</span>
+            Shapes & Pieces <span>Inventory & invoicing</span>
           </p>
         </div>
       </section>

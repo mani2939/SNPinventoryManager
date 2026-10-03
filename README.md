@@ -17,6 +17,26 @@ A Vercel-ready jewellery inventory app using Next.js 16.3.8, React 19.3, TypeScr
 - Saved exchange-rate snapshots: later rate changes only affect new entries; edits preserve each product's original rate.
 - Desktop and mobile layouts, keyboard-accessible forms and delete confirmation.
 
+## Invoicing
+
+Choose **Inventory Manager** or **Invoicing** from the login dropdown. The sidebar also switches workspaces. Invoicing includes a daily register filtered by inclusive date range and first/last name prefix, manual entry and barcode/camera entry using inventory products. Scanning the same product again increases quantity; saved retail GBP prices are suggested and editable. Saving never deducts inventory quantities. Prices use GBP with no VAT breakdown.
+
+Configure seller contact, payment details, footer and default due days in **Invoice settings**. Each saved invoice snapshots those settings, customer details, descriptions and prices; later product/settings changes do not rewrite it. Correct a saved financial mistake by voiding it and creating another invoice. Mark invoices paid/unpaid, download a branded multipage PDF, or send it via WhatsApp. Voided invoices remain in the register and cannot be reopened or sent.
+
+**Set `CUSTOMER_DATA_ENCRYPTION_KEY` before using invoicing**, including in the demo. Run `npm run encryption:key` and store its output securely in `.env.local` or the Vercel server environment. Redeploy after configuring it. There is no automatic/default key. Old keys can be retained in `CUSTOMER_DATA_PREVIOUS_KEYS`. Customer names, addresses, phones, notes, item descriptions, seller settings/snapshots and recipient history are encrypted before writes; name filtering uses keyed search tokens. The migration adds three protected tables and verifies nine tables in total.
+
+Customer export and explicit removal are available on an invoice. Removal retains amounts/dates and clears contact details, notes/descriptions and recipients from active records. See [Customer data protection](docs/customer-data-protection.md) for the actual protections, remaining identifying metadata, key recovery/rotation, backup handling and business compliance responsibilities. This implementation does not certify complete legal compliance.
+
+### WhatsApp setup
+
+Use a Meta WhatsApp Business Cloud API account with a registered business phone number and server-side access token. Configure `WHATSAPP_ACCESS_TOKEN`, `WHATSAPP_PHONE_NUMBER_ID`, `WHATSAPP_INVOICE_TEMPLATE` and `WHATSAPP_TEMPLATE_LANGUAGE` in Vercel. `WHATSAPP_API_VERSION` defaults to `v26.0`.
+
+Create and obtain approval for a **utility invoice template with a document header** and exactly three positional body parameters: **customer name**, **invoice number**, **total in GBP**, in that order. For example: `Hello {{1}}, your invoice {{2}} totals {{3}}. Please find your invoice attached.` Set the environment template name/language to the approved values and supply the document example requested by Meta when submitting it. Confirm the customer agreed to WhatsApp invoicing and verify the recipient before sending.
+
+The server uploads the generated PDF through `/media`, then sends the template through `/messages`. Tokens never reach the browser. Accepted means Meta accepted the request; this version has no delivery webhook and does not claim confirmed delivery. Retries with the same identifier return the existing outcome. On timeout/uncertainty, check WhatsApp before preparing a deliberate new attempt. No live messages were sent during automated testing.
+
+Without API credentials, download the PDF and use **Open WhatsApp (attach PDF)**: attach the downloaded file yourself. A `wa.me` link cannot automatically attach or send the PDF. Official examples: [Meta document template](https://www.postman.com/meta/whatsapp-business-platform/request/2qbotrb/send-message-template-media) and [Meta media API](https://www.postman.com/meta/whatsapp-business-platform/folder/13382743-ecb27be5-4d27-4763-bbee-6a8002c04bf3).
+
 ## Product register totals and deletion
 
 Each product row has a visible **Delete** button beside its product details, with confirmation and cancellation. Successful deletion refreshes the filtered products and totals; removing the final row on a later page returns to the previous page. Concurrent edits are protected by the saved version, and deletion errors appear inside the confirmation dialog. Barcode reservations remain consumed after deletion.
@@ -35,6 +55,7 @@ For a self-contained **development preview**, create `.env.local` with:
 
 ```dotenv
 DEMO_MODE=true
+CUSTOMER_DATA_ENCRYPTION_KEY=<generate with npm run encryption:key>
 ```
 
 Then run:
@@ -58,9 +79,9 @@ For real services, copy `.env.example` to `.env.local`, supply the values descri
 
 `vercel.json` sets the build command to `npm run build`. Its npm `prebuild` hook runs `node scripts/migrate.mjs --build` before Next.js builds. The runner uses the existing Neon serverless dependency and connects with `DATABASE_URL`; no additional database service or migration credential is needed.
 
-Each Vercel deployment (Production and Preview) creates/verifies all six app tables, supporting indexes/keys, price, product-type and identity triggers, login limiter and settings row. Creation and verification run in one PostgreSQL transaction with a transaction-level advisory lock, so simultaneous builds wait rather than changing the schema together. Existing inventory, photos, reserved SKUs, vendors and exchange rates are preserved on repeated builds. If connectivity, owner permissions, SQL or verification fails, the transaction rolls back and the build exits nonzero before Next.js builds. Error logs show the stage and PostgreSQL code without the connection string. Vercel builds also validate admin password-hash and session-secret configuration before starting migration.
+Each Vercel deployment (Production and Preview) creates/verifies all nine app tables, supporting indexes/keys, price, product-type and identity triggers, login limiter and settings row. Creation and verification run in one PostgreSQL transaction with a transaction-level advisory lock, so simultaneous builds wait rather than changing the schema together. Existing inventory, photos, reserved SKUs, vendors and exchange rates are preserved on repeated builds. If connectivity, owner permissions, SQL or verification fails, the transaction rolls back and the build exits nonzero before Next.js builds. Error logs show the stage and PostgreSQL code without the connection string. Vercel builds also validate admin password-hash and session-secret configuration before starting migration.
 
-The successful build log contains **`Database schema verified: 6 app tables. Existing inventory preserved.`** Add your actual vendors and exchange rate in Settings after the first deployment. Missing `DATABASE_URL` fails Vercel builds even if `DEMO_MODE=true`. Use a separate Neon branch/database for Preview, since preview builds migrate the database configured for that environment.
+The successful build log contains **`Database schema verified: 9 app tables. Existing inventory preserved.`** Add your actual vendors and exchange rate in Settings after the first deployment. Missing `DATABASE_URL` fails Vercel builds even if `DEMO_MODE=true`. Use a separate Neon branch/database for Preview, since preview builds migrate the database configured for that environment.
 
 Ordinary local `npm run build` remains offline. For local database creation, copy the server variables into `.env.local`, then explicitly run:
 
@@ -172,9 +193,9 @@ A wrong username/password still returns 401; excessive attempts still return 429
 
 1. Upload this source to a private GitHub/GitLab/Bitbucket repository, without `.env.local`, `.demo-data`, `.next` or `node_modules`.
 2. Import the repository in Vercel. Use the **Next.js** framework preset, repository root, Node.js **24.x**, `npm ci` for install, and `npm run build` for build. Leave the Output Directory at the Next.js default.
-3. Add all Neon, PeaSoup, username, password hash and session-secret variables from `.env.example` to Vercel's Production environment. Add them to Preview only if previews should use those services. Prefer separate data/services for previews.
+3. Add all Neon, PeaSoup, username, password hash, session-secret and customer-encryption-key variables from `.env.example` to Vercel's Production environment. Add them to Preview only if previews should use those services. Prefer separate data/services for previews.
 4. Set `DEMO_MODE=false` (or omit it). Do not manually set `NODE_ENV` or `VERCEL`.
-5. Commit the updated source, including `vercel.json` and `scripts/migrate.mjs`, and deploy. Watch for `Database schema verified: 6 app tables` in the build logs. Configure PeaSoup CORS for the deployment hostname. Redeploy after environment-variable changes.
+5. Commit the updated source, including `vercel.json` and `scripts/migrate.mjs`, and deploy. Watch for `Database schema verified: 9 app tables` in the build logs. Configure PeaSoup CORS for the deployment hostname. Redeploy after environment-variable changes.
 6. Sign in, add your actual vendors, save your exchange rate, and create a product with a photo. Refresh and verify that the entry and photo persist.
 
 Alternatively, from the configured project directory, use the Vercel CLI:
@@ -255,6 +276,8 @@ npm run test:e2e
 ```
 
 `npm test` checks automatic migration creation, preservation of saved inventory on redeployment, verification rollback and the actual npm build stopping without a Vercel database credential. It also checks financial rounding and input validation and executes the migration against local PostgreSQL via PGlite, including its pricing trigger, access restrictions, login limiter, unique reservations, immutable identifiers and atomic save rollback. Browser tests run a local demo server on port 3010 and create test vendors/products; use a separate checkout or reset local demo data if needed. Stop other `next dev` processes for the same checkout before running the browser suite.
+
+The invoicing browser check covers workspace choice, seller snapshots, barcode/manual entry, duplicate save rejection, PDF responses, private name/date filters, payment status, export, customer removal and mobile layout. Unit/database checks include authenticated encryption, old-key reads/search, authoritative invoice pricing, immutable records, send/redaction locks and the WhatsApp upload/template adapter with mocked responses. Live Meta account/template setup and actual delivery still require your own configured account.
 
 The browser suite covers sign-in, auth rejection, settings, photo upload, create/edit/delete, persistence on refresh, filters, historical rate preservation, mobile layout, CSRF rejection and stale-edit conflicts. It also checks barcode generation before save, duplicate-free concurrent reservations, idempotent saving with a photo, reservation/pricing mismatch rejection, keyboard lookup, actual ZXing decoding from a generated barcode camera stream, label copy counts, print CSS/PDF sizes, and preserved barcodes after price edits. Provider connectivity, bucket CORS, network policy and Vercel deployment need a live check with your own services.
 

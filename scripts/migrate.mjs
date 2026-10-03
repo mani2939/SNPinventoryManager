@@ -36,7 +36,7 @@ export async function applyMigration(client, { migrationSql, verificationSql }) 
     const result = await client.query(verificationSql);
     const results = Array.isArray(result) ? result : [result];
     const report = results.flatMap((r) => r.rows ?? []).find((r) => r.schema_status === "schema verified");
-    if (!report || Number(report.app_tables) !== 6) throw new Error("The schema readiness report is incomplete.");
+    if (!report || Number(report.app_tables) !== 9) throw new Error("The schema readiness report is incomplete.");
     stage = "committing the schema";
     await client.query("COMMIT");
     inTransaction = false;

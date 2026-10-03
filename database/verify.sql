@@ -9,6 +9,7 @@ begin
   select * from (values
    ('vendors','id','uuid'),('vendors','name','text'),('vendors','pseudo_code','text'),('vendors','active','boolean'),('vendors','created_at','timestamp with time zone'),
    ('product_types','id','uuid'),('product_types','name','text'),('product_types','active','boolean'),('product_types','created_at','timestamp with time zone'),('products','product_type_id','uuid'),
+   ('invoice_settings','id','integer'),('invoice_settings','profile','text'),('invoices','id','uuid'),('invoices','invoice_number','text'),('invoices','items','jsonb'),('invoices','seller','text'),('invoices','customer_data','text'),('invoices','customer_name_index','text[]'),('invoices','privacy_redacted_at','timestamp with time zone'),('invoices','total_gbp','numeric(20,2)'),('invoice_deliveries','id','uuid'),('invoice_deliveries','request_token','uuid'),('invoice_deliveries','invoice_id','uuid'),('invoice_deliveries','status','text'),('invoice_deliveries','recipient','text'),('invoice_deliveries','recipient_hash','text'),('invoice_deliveries','consent_confirmed_at','timestamp with time zone'),('invoices','request_token','uuid'),('invoices','payload_hash','text'),('invoices','invoice_date','date'),('invoices','due_date','date'),('invoices','status','text'),
    ('settings','id','integer'),('settings','exchange_rate','numeric(12,4)'),
    ('products','id','uuid'),('products','item_name','text'),('products','description','text'),('products','vendor_id','uuid'),('products','entry_date','date'),
    ('products','price_inr','numeric(12,2)'),('products','quantity','integer'),('products','discount_percent','numeric(5,2)'),('products','shipping_percent','numeric(6,2)'),
@@ -29,7 +30,7 @@ begin
   end if;
  end loop;
 
- for required in select unnest(array['vendors','product_types','settings','products','sku_reservations','login_limits']) as table_name loop
+ for required in select unnest(array['vendors','product_types','settings','products','sku_reservations','login_limits','invoice_settings','invoices','invoice_deliveries']) as table_name loop
   relation_id:=to_regclass('public.'||required.table_name);
   if not exists(select 1 from pg_constraint where conrelid=relation_id and contype='p') then
    raise exception 'Missing primary key on %',required.table_name;
@@ -40,7 +41,7 @@ begin
  end loop;
 
  for required in select * from (values
-  ('products','vendor_id','vendors'),('products','product_type_id','product_types'),('products','sku','sku_reservations'),('sku_reservations','vendor_id','vendors')
+  ('invoice_deliveries','invoice_id','invoices'),('products','vendor_id','vendors'),('products','product_type_id','product_types'),('products','sku','sku_reservations'),('sku_reservations','vendor_id','vendors')
  ) as expected(table_name,column_name,parent_table) loop
   if not exists(
    select 1 from pg_constraint c join pg_attribute a on a.attrelid=c.conrelid and a.attnum=any(c.conkey)
@@ -50,7 +51,7 @@ begin
  end loop;
 
  for required in select * from (values
-  ('vendors_name_unique',true),('products_photo_unique',true),('products_sku_unique',true),
+  ('invoices_request_token_key',true),('invoices_invoice_number_key',true),('invoices_date_idx',false),('invoice_deliveries_request_token_key',true),('invoice_deliveries_invoice_idx',false),('vendors_name_unique',true),('products_photo_unique',true),('products_sku_unique',true),
   ('vendors_pseudo_code_unique',true),('product_types_name_unique',true),('products_product_type_idx',false),
   ('sku_reservations_token_key',true),('products_vendor_date_idx',false),('products_date_idx',false)
  ) as expected(index_name,must_be_unique) loop
@@ -66,6 +67,8 @@ begin
    raise exception 'Missing or disabled product trigger: %',required.trigger_name;
   end if;
  end loop;
+ if not exists(select 1 from pg_trigger where tgrelid='public.invoices'::regclass and tgname='invoice_calculation_guard' and tgenabled in ('O','A') and tgfoid=to_regprocedure('public.calculate_invoice()')) then raise exception 'Missing invoice pricing/identity trigger';end if;
+ if not exists(select 1 from invoice_settings where id=1) then raise exception 'Missing invoice settings';end if;
  if to_regprocedure('public.consume_login_attempt(text)') is null then raise exception 'Missing persistent login limiter';end if;
  if not exists(select 1 from public.settings where id=1) then raise exception 'Missing settings singleton';end if;
  if not exists(select 1 from pg_attribute where attrelid='public.vendors'::regclass and attname='pseudo_code' and attnotnull)
@@ -76,14 +79,14 @@ begin
 
  if exists(
   select 1 from pg_proc p cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
-  where p.oid=any(array[to_regprocedure('public.consume_login_attempt(text)'),to_regprocedure('public.calculate_product_prices()'),to_regprocedure('public.protect_product_identity()'),to_regprocedure('public.validate_product_type()')])
+  where p.oid=any(array[to_regprocedure('public.consume_login_attempt(text)'),to_regprocedure('public.calculate_product_prices()'),to_regprocedure('public.protect_product_identity()'),to_regprocedure('public.validate_product_type()'),to_regprocedure('public.calculate_invoice()')])
    and a.grantee=0 and a.privilege_type='EXECUTE'
  ) then raise exception 'Public execution is enabled on an app function';end if;
 end $$;
 
 -- The schema status is separate from values that you set in the app's Settings.
 select 'schema verified' as schema_status,current_database() as database_name,current_user as sql_role,
- (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('vendors','product_types','settings','products','sku_reservations','login_limits') and c.relkind='r') as app_tables,
+ (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('vendors','product_types','settings','products','sku_reservations','login_limits','invoice_settings','invoices','invoice_deliveries') and c.relkind='r') as app_tables,
  (select exchange_rate from public.settings where id=1) as configured_inr_per_gbp,
  (select count(*) from public.vendors where active) as active_vendors,
  (select count(*) from public.product_types where active) as active_product_types,

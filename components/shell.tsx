@@ -3,7 +3,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Gem, LayoutList, Plus, Settings, LogOut } from "lucide-react";
+import { Gem, LayoutList, Plus, Settings, LogOut, ReceiptText } from "lucide-react";
 export function Shell({
   children,
   demo,
@@ -13,6 +13,7 @@ export function Shell({
 }) {
   const pathname = usePathname();
   const router = useRouter();
+  const invoicing = pathname.startsWith("/invoices");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function logout() {
@@ -30,7 +31,7 @@ export function Shell({
   return (
     <div className="app-shell">
       <aside className="sidebar">
-        <Link href="/inventory" className="brand">
+        <Link href={invoicing ? "/invoices" : "/inventory"} className="brand">
           <Image
             src="/logo.webp"
             alt="Shapes and Pieces"
@@ -38,16 +39,26 @@ export function Shell({
             height={66}
           />
           <div>
-            Shapes & Pieces<span>THE INVENTORY STUDIO</span>
+            Shapes & Pieces<span>{invoicing ? "THE INVOICE STUDIO" : "THE INVENTORY STUDIO"}</span>
           </div>
         </Link>
+        <div className="workspace-switcher"><label>
+          <span>Workspace</span>
+          <select aria-label="Switch workspace" value={invoicing ? "invoicing" : "inventory"} onChange={e=>router.push(e.target.value === "invoicing" ? "/invoices" : "/inventory")}>
+            <option value="inventory">Inventory Manager</option><option value="invoicing">Invoicing</option>
+          </select>
+        </label></div>
         <div className="sidebar-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
-          {[
+          {(invoicing ? [
+            { href: "/invoices", label: "Invoices", icon: ReceiptText },
+            { href: "/invoices/new", label: "Create invoice", icon: Plus },
+            { href: "/invoices/settings", label: "Invoice settings", icon: Settings },
+          ] : [
             { href: "/inventory", label: "Inventory", icon: LayoutList },
             { href: "/products/new", label: "Add product", icon: Plus },
             { href: "/settings", label: "Settings", icon: Settings },
-          ].map(({ href, label, icon: Icon }) => (
+          ]).map(({ href, label, icon: Icon }) => (
             <Link
               href={href}
               key={href}
@@ -77,10 +88,10 @@ export function Shell({
       <div className="workspace">
         <header className="topbar">
           <div>
-            <span className="topbar-title">Inventory studio</span>
+            <span className="topbar-title">{invoicing ? "Invoice studio" : "Inventory studio"}</span>
             <span className="topbar-divider">/</span>
             <span className="muted">
-              {pathname === "/settings"
+              {invoicing ? (pathname === "/invoices/settings" ? "Settings" : pathname === "/invoices/new" ? "New invoice" : "Invoices") : pathname === "/settings"
                 ? "Settings"
                 : pathname.includes("/products")
                   ? "Product entry"

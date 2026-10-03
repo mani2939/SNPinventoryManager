@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { authenticated } from "@/lib/auth";
+import { preferredWorkspace } from "@/lib/auth";
 export default async function Home() {
-  redirect((await authenticated()) ? "/inventory" : "/login");
+  redirect(await preferredWorkspace());
 }

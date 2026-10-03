@@ -20,11 +20,12 @@ export function LoginForm() {
         body: JSON.stringify({
           username: form.get("username"),
           password: form.get("password"),
+          workspace: form.get("workspace"),
         }),
       });
       const v = await r.json();
       if (!r.ok) throw new Error(v.error);
-      router.replace("/inventory");
+      router.replace(v.redirect === "/invoices" ? "/invoices" : "/inventory");
       router.refresh();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Unable to sign in.");
@@ -59,6 +60,13 @@ export function LoginForm() {
           maxLength={200}
           placeholder="Enter your password"
         />
+      </label>
+      <label>
+        Workspace
+        <select name="workspace" defaultValue="inventory" required>
+          <option value="inventory">Inventory Manager</option>
+          <option value="invoicing">Invoicing</option>
+        </select>
       </label>
       {error ? (
         <p role="alert" className="error">
