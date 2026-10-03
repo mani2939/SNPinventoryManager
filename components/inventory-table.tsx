@@ -17,11 +17,21 @@ import {
 } from "lucide-react";
 import { api, money, displayDate } from "@/lib/client";
 import { BarcodeLookup } from "./barcode-lookup";
-import type { Product, Vendor } from "@/lib/types";
+import type { InventoryTotals, Product, Vendor } from "@/lib/types";
+const financialTotals = [
+  ["total_before_discount", "Before discount", "INR"],
+  ["discount_amount", "Discount amount", "INR"],
+  ["total_after_discount", "After discount", "INR"],
+  ["shipping_amount", "Shipping", "INR"],
+  ["final_total_inr", "Final total", "INR"],
+  ["batch_gbp", "Purchase cost", "GBP"],
+  ["retail_value_gbp", "Retail value", "GBP"],
+] as const;
 export function InventoryTable() {
   const [rows, setRows] = useState<Product[]>([]);
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [count, setCount] = useState(0);
+  const [totals, setTotals] = useState<InventoryTotals | null>(null);
   const [page, setPage] = useState(1);
   const [sku, setSku] = useState("");
   const [vendor, setVendor] = useState("");
@@ -59,18 +69,21 @@ export function InventoryTable() {
     if (vendor) q.set("vendor", vendor);
     if (from) q.set("from", from);
     if (to) q.set("to", to);
-    api<{ products: Product[]; count: number }>(`/api/products?${q}`, {
+    api<{ products: Product[]; count: number; totals: InventoryTotals }>(`/api/products?${q}`, {
       signal: controller.signal,
     })
       .then((v) => {
+        if (controller.signal.aborted) return;
         setRows(v.products);
         setCount(v.count);
+        setTotals(v.totals);
       })
       .catch((e) => {
         if (e.name !== "AbortError") {
           setError(e.message);
           setRows([]);
           setCount(0);
+          setTotals(null);
         }
       })
       .finally(() => {
@@ -97,8 +110,6 @@ export function InventoryTable() {
       setBusy(false);
     }
   }
-  const quantity = rows.reduce((n, p) => n + p.quantity, 0),
-    cost = rows.reduce((n, p) => n + Number(p.final_total_inr), 0);
   return (
     <>
       <div className="page-heading">
@@ -156,8 +167,8 @@ export function InventoryTable() {
             <Package size={22} />
           </span>
           <div>
-            <span>Pieces on this page</span>
-            <strong>{loading ? "—" : quantity}</strong>
+            <span>Matching pieces</span>
+            <strong>{loading || !totals ? "—" : totals.quantity}</strong>
           </div>
         </div>
         <div className="stat-card">
@@ -165,8 +176,8 @@ export function InventoryTable() {
             <IndianRupee size={22} />
           </span>
           <div>
-            <span>Landed cost on this page</span>
-            <strong>{loading ? "—" : money(cost, "INR")}</strong>
+            <span>Matching landed cost</span>
+            <strong>{loading || !totals ? "—" : money(totals.final_total_inr, "INR")}</strong>
           </div>
         </div>
       </div>
@@ -239,6 +250,23 @@ export function InventoryTable() {
             </button>
           ) : null}
         </div>
+        <div className="inventory-totals" aria-label="Filtered inventory totals" aria-busy={loading}>
+          <div className="totals-heading">
+            <h3>Selected totals</h3>
+            <p>All products matching the vendor, date and barcode filters, across every page.</p>
+          </div>
+          <dl className="totals-grid">
+            <div><dt>Products</dt><dd>{loading ? "—" : count}</dd></div>
+            <div><dt>Pieces</dt><dd>{loading || !totals ? "—" : totals.quantity}</dd></div>
+            {financialTotals.map(([key, label, currency]) => (
+              <div key={key}>
+                <dt>{label} · {currency}</dt>
+                <dd>{loading || !totals ? "—" : money(totals[key], currency)}</dd>
+              </div>
+            ))}
+          </dl>
+          <p className="totals-note">GBP purchase cost uses each product’s saved exchange rate. Retail value = retail price per piece × quantity.</p>
+        </div>
         {loading ? (
           <div className="table-empty" role="status">
             <Package size={32} />
@@ -289,7 +317,6 @@ export function InventoryTable() {
                   <th>Batch · GBP</th>
                   <th>Cost / piece · GBP</th>
                   <th>Retail / piece · GBP</th>
-                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -316,6 +343,35 @@ export function InventoryTable() {
                             {p.description || "—"}
                           </span>
                         </div>
+                      </div>
+                      <div className="row-actions">
+                        {p.sku ? (
+                          <Link
+                            href={`/products/${p.id}/labels`}
+                            className="icon-button"
+                            aria-label={`Print labels for ${p.item_name}`}
+                          >
+                            <Printer size={16} />
+                          </Link>
+                        ) : null}
+                        <Link
+                          href={`/products/${p.id}`}
+                          className="icon-button"
+                          aria-label={`Edit ${p.item_name}`}
+                        >
+                          <Pencil size={16} />
+                        </Link>
+                        <button
+                          className="icon-button danger delete-product-action"
+                          aria-label={`Delete ${p.item_name}`}
+                          onClick={() => {
+                            setError("");
+                            setDeleting(p);
+                          }}
+                        >
+                          <Trash2 size={16} />
+                          Delete
+                        </button>
                       </div>
                     </td>
                     <td>
@@ -345,33 +401,6 @@ export function InventoryTable() {
                       <span className="retail-pill">
                         {money(p.retail_gbp, "GBP")}
                       </span>
-                    </td>
-                    <td>
-                      <div className="row-actions">
-                        {p.sku ? (
-                          <Link
-                            href={`/products/${p.id}/labels`}
-                            className="icon-button"
-                            aria-label={`Print labels for ${p.item_name}`}
-                          >
-                            <Printer size={16} />
-                          </Link>
-                        ) : null}
-                        <Link
-                          href={`/products/${p.id}`}
-                          className="icon-button"
-                          aria-label={`Edit ${p.item_name}`}
-                        >
-                          <Pencil size={16} />
-                        </Link>
-                        <button
-                          className="icon-button danger"
-                          aria-label={`Delete ${p.item_name}`}
-                          onClick={() => setDeleting(p)}
-                        >
-                          <Trash2 size={16} />
-                        </button>
-                      </div>
                     </td>
                   </tr>
                 ))}
@@ -416,6 +445,7 @@ export function InventoryTable() {
         <DeleteDialog
           product={deleting}
           busy={busy}
+          error={error}
           close={() => setDeleting(null)}
           remove={() => void remove()}
         />
@@ -426,11 +456,13 @@ export function InventoryTable() {
 function DeleteDialog({
   product,
   busy,
+  error,
   close,
   remove,
 }: {
   product: Product;
   busy: boolean;
+  error: string;
   close: () => void;
   remove: () => void;
 }) {
@@ -438,7 +470,6 @@ function DeleteDialog({
   useEffect(() => {
     const dialog = ref.current;
     dialog?.showModal();
-    return () => dialog?.close();
   }, []);
   return (
     <dialog
@@ -454,6 +485,7 @@ function DeleteDialog({
       <p>
         “{product.item_name}” and its photo will be removed from your inventory.
       </p>
+      {error ? <p className="error" role="alert">{error}</p> : null}
       <div className="modal-actions">
         <button
           autoFocus

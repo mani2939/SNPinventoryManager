@@ -9,7 +9,8 @@ import { calculatePricing } from "./pricing";
 import { buildSku, anonymousVendorCode } from "./sku";
 import { generateBarcode } from "./barcode";
 import { reserveSkuSql, saveNewProductSql } from "./product-sql";
-import type { Product, ProductType, Settings, Vendor, SkuReservation } from "./types";
+import { productFilter, inventorySummarySql, summarizeInventory, type ProductFilters } from "./inventory-summary";
+import type { Product, ProductType, Settings, Vendor, SkuReservation, InventoryTotals } from "./types";
 import type { productSchema, reservationSchema } from "./validation";
 import type { z } from "zod";
 type Demo = {
@@ -205,13 +206,7 @@ export async function setRate(exchange_rate: number) {
   if (!r[0]) throw new Error("Run the database migration.");
   return { id: 1, exchange_rate: Number(r[0].exchange_rate) };
 }
-export type Filters = {
-  vendor?: string;
-  from?: string;
-  to?: string;
-  sku?: string;
-  page: number;
-};
+export type Filters = ProductFilters;
 export async function listProducts(f: Filters) {
   if (demoMode()) {
     const d = await readDemo();
@@ -240,32 +235,25 @@ export async function listProducts(f: Filters) {
           product_types: d.productTypes.find(t => t.id === p.product_type_id) || null,
         })),
       count: rows.length,
+      totals: summarizeInventory(rows),
     };
   }
-  const params: unknown[] = [],
-    where: string[] = [];
-  for (const [field, operator, value] of [
-    ["vendor_id", "=", f.vendor],
-    ["entry_date", ">=", f.from],
-    ["entry_date", "<=", f.to],
-    ["sku", "=", f.sku],
-  ])
-    if (value) {
-      params.push(value);
-      where.push(`p.${field} ${operator} $${params.length}`);
-    }
-  const clause = where.length ? "where " + where.join(" and ") : "";
-  const [rows, count] = await Promise.all([
+  const { params, clause } = productFilter(f);
+  const [rows, summary] = await Promise.all([
     query<Record<string, unknown>>(
       `select p.*,v.name as vendor_name,t.name as product_type_name from products p join vendors v on v.id=p.vendor_id left join product_types t on t.id=p.product_type_id ${clause} order by p.entry_date desc,p.created_at desc,p.id limit 25 offset $${params.length + 1}`,
       [...params, (f.page - 1) * 25],
     ),
-    query<{ count: string }>(
-      `select count(*) from products p ${clause}`,
+    query<Record<string, string>>(
+      inventorySummarySql(clause),
       params,
     ),
   ]);
-  return { products: rows.map(productRow), count: Number(count[0].count) };
+  const { count, ...totals } = summary[0];
+  return {
+    products: rows.map(productRow), count: Number(count),
+    totals: Object.fromEntries(Object.entries(totals).map(([key, value]) => [key, Number(value)])) as InventoryTotals,
+  };
 }
 export async function getProduct(id: string): Promise<Product | null> {
   if (demoMode())

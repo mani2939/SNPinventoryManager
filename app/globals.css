@@ -919,6 +919,24 @@ label select {
   overflow: auto;
   max-width: 100%;
 }
+.inventory-totals {
+  padding: 20px 24px;
+  border-bottom: 1px solid var(--line);
+  background: #fdfaf8;
+}
+.totals-heading h3 { font-size: 0.9rem; }
+.totals-heading p, .totals-note { font-size: 0.75rem; color: var(--muted); }
+.totals-heading p { margin-top: 5px; }
+.totals-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 155px), 1fr));
+  gap: 16px;
+  margin: 18px 0;
+}
+.totals-grid dt { font-size: 0.72rem; color: var(--muted); }
+.totals-grid dd { margin: 5px 0 0; font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.product-cell .row-actions { margin-top: 10px; }
+.row-actions .delete-product-action { gap: 5px; color: #b42f44; padding-inline: 10px; font-size: 0.75rem; }
 table {
   border-collapse: collapse;
   width: 100%;

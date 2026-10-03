@@ -79,3 +79,12 @@ Screenshots contain illustrative test products and use the supplied logo as the 
 - Exchange rate and Product types now share an independent stacked column. The Vendors card stays in the adjacent column on desktop; a long vendor list cannot push Product types down.
 - Browser checks passed at 1440, 1024, 768 and 390 px: Product types aligns with Exchange rate, with a 24 px gap (20 px on phone), no horizontal overflow and no page errors. Desktop Vendors aligns at the top; mobile order is Exchange rate, Product types, Vendors. Desktop/mobile screenshots were visually inspected.
 - Production build and TypeScript compilation passed. These are local layout checks; redeploy the updated source to apply the change.
+
+## Inventory deletion and filtered totals
+
+- Moved print/edit/delete actions into the product-details cell. Delete has a visible label and is reachable without scrolling through financial columns. Native confirmation supports cancellation/Escape, and stale-delete errors appear inside the dialog.
+- Authenticated products API returns whole-filter aggregates alongside paginated rows. Vendor, inclusive date range and exact SKU filters are shared between the row and summary queries. Empty sets return zeros. No schema changes are required.
+- PostgreSQL regression verified 26 matching products over two pages, excluded vendor/date rows, decimal arithmetic, saved batch costs, quantity-weighted retail value, exact SKU lookup and updated totals after deletion. Demo aggregation agreed with PostgreSQL. **17 tests passed.**
+- Dedicated browser regression **passed**: 26 products/52 pieces/₹4,914 cost were retained on page 2; cancellation preserved them; confirmed deletion updated to 25 products/50 pieces/₹4,725 and page 1. Historical GBP totals remained unchanged after settings-rate edits. Mobile had no page overflow; stale deletion returned its error inside the modal; empty/cleared filters refreshed totals; no page errors were recorded. The mobile screenshot was visually inspected.
+- The bundled Chromium executable had been truncated; a fresh extraction of its bundled binary restored browser verification. Browser security remained enabled during the successful scenario. No authentication/origin protections were weakened.
+- Production build and TypeScript compilation passed. Live deployment/provider connections remain subject to the previously documented limitations; redeploy this source to apply the update.

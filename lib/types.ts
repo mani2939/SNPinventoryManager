@@ -1,6 +1,16 @@
 import type { PricingInput } from "./pricing";
 export type Vendor = { id: string; name: string; pseudo_code: string; active: boolean };
 export type ProductType = { id: string; name: string; active: boolean };
+export type InventoryTotals = {
+  quantity: number;
+  total_before_discount: number;
+  discount_amount: number;
+  total_after_discount: number;
+  shipping_amount: number;
+  final_total_inr: number;
+  batch_gbp: number;
+  retail_value_gbp: number;
+};
 export type Settings = { id: number; exchange_rate: number | null };
 export type Product = PricingInput & {
   id: string;

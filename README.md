@@ -17,6 +17,12 @@ A Vercel-ready jewellery inventory app using Next.js 16.3.8, React 19.3, TypeScr
 - Saved exchange-rate snapshots: later rate changes only affect new entries; edits preserve each product's original rate.
 - Desktop and mobile layouts, keyboard-accessible forms and delete confirmation.
 
+## Product register totals and deletion
+
+Each product row has a visible **Delete** button beside its product details, with confirmation and cancellation. Successful deletion refreshes the filtered products and totals; removing the final row on a later page returns to the previous page. Concurrent edits are protected by the saved version, and deletion errors appear inside the confirmation dialog. Barcode reservations remain consumed after deletion.
+
+**Selected totals** includes all products matching the vendor, inclusive date range and barcode filters, across every page. It shows product count, pieces, before-discount INR amount, actual discount amount, after-discount amount, shipping, final INR cost, GBP purchase cost and quantity-weighted GBP retail value. GBP purchase cost sums the stored batch costs, preserving each purchase's exchange rate. Retail value sums each product's retail price per piece multiplied by its quantity. Per-piece prices, exchange rates and percentages are not summed. Clearing filters restores whole-inventory totals; no matches returns zero totals. These totals use existing database fields and need no additional schema migration.
+
 ## Start locally
 
 Use Node.js 24 LTS (Node 22 also supported).
