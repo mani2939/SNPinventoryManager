@@ -1,21 +1,23 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Store, ArrowRightLeft, Plus, Save } from "lucide-react";
+import { Store, ArrowRightLeft, Save, Tags } from "lucide-react";
 import { api } from "@/lib/client";
-import type { Vendor, Settings } from "@/lib/types";
+import type { Vendor, ProductType, Settings } from "@/lib/types";
+import { ConfigurationList } from "./configuration-list";
 export function SettingsPanel() {
   const [vendors, setVendors] = useState<Vendor[]>([]);
   const [rate, setRate] = useState("");
-  const [name, setName] = useState("");
+  const [productTypes, setProductTypes] = useState<ProductType[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   async function load() {
-    const v = await api<{ vendors: Vendor[]; settings: Settings }>(
+    const v = await api<{ vendors: Vendor[]; productTypes: ProductType[]; settings: Settings }>(
       "/api/config",
     );
     setVendors(v.vendors);
+    setProductTypes(v.productTypes);
     setRate(v.settings.exchange_rate ? String(v.settings.exchange_rate) : "");
   }
   useEffect(() => {
@@ -134,87 +136,14 @@ export function SettingsPanel() {
                 <p>Available in the product entry dropdown.</p>
               </div>
             </div>
-            <form
-              className="vendor-form"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void action(
-                  "vendor",
-                  async () => {
-                    await api("/api/vendors", {
-                      method: "POST",
-                      body: JSON.stringify({ name }),
-                    });
-                    setName("");
-                  },
-                  "Vendor added.",
-                );
-              }}
-            >
-              <label className="grow">
-                Vendor name
-                <input
-                  placeholder="e.g. Jaipur Jewellery House"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                  maxLength={100}
-                />
-              </label>
-              <button className="button primary" disabled={!!busy}>
-                <Plus size={17} />
-                Add vendor
-              </button>
-            </form>
-            <div className="vendor-list">
-              {vendors.length ? (
-                vendors.map((v) => (
-                  <div key={v.id} className="vendor-row">
-                    <span className="vendor-initial">
-                      {v.name.slice(0, 1).toUpperCase()}
-                    </span>
-                    <div className="grow">
-                      <strong>{v.name}</strong>
-                      <small>
-                        {v.active
-                          ? "Available for new products"
-                          : "Archived · history preserved"}
-                      </small>
-                    </div>
-                    <button
-                      className="text-button"
-                      disabled={!!busy}
-                      onClick={() =>
-                        void action(
-                          v.id,
-                          () =>
-                            api("/api/vendors", {
-                              method: "PATCH",
-                              body: JSON.stringify({
-                                id: v.id,
-                                active: !v.active,
-                              }),
-                            }),
-                          v.active
-                            ? "Vendor archived. Existing entries are preserved."
-                            : "Vendor restored.",
-                        )
-                      }
-                    >
-                      {busy === v.id
-                        ? "Updating…"
-                        : v.active
-                          ? "Archive"
-                          : "Restore"}
-                    </button>
-                  </div>
-                ))
-              ) : (
-                <p className="empty-small">
-                  No vendors yet. Add your first supplier above.
-                </p>
-              )}
+            <ConfigurationList kind="vendor" entries={vendors} busy={busy} action={action} />
+          </section>
+          <section className="card">
+            <div className="section-title">
+              <span className="section-icon"><Tags size={19} /></span>
+              <div><h2>Product types</h2><p>Classify pieces in the product details dropdown.</p></div>
             </div>
+            <ConfigurationList kind="type" entries={productTypes} busy={busy} action={action} />
           </section>
         </div>
       )}

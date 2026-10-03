@@ -17,11 +17,12 @@ import { calculatePricing } from "@/lib/pricing";
 import { ProductLabel } from "./product-label";
 import { LabelPrintDialog } from "./label-print-dialog";
 import { reservationSchema } from "@/lib/validation";
-import type { SkuReservation, Product, Vendor, Settings } from "@/lib/types";
+import type { SkuReservation, Product, ProductType, Vendor, Settings } from "@/lib/types";
 type Form = {
   item_name: string;
   description: string;
   vendor_id: string;
+  product_type_id: string;
   entry_date: string;
   price_inr: string;
   quantity: string;
@@ -32,6 +33,7 @@ const blank = (): Form => ({
   item_name: "",
   description: "",
   vendor_id: "",
+  product_type_id: "",
   entry_date: today(),
   price_inr: "",
   quantity: "1",
@@ -81,6 +83,7 @@ export function ProductForm({ initial }: { initial?: Product }) {
           item_name: initial.item_name,
           description: initial.description,
           vendor_id: initial.vendor_id,
+          product_type_id: initial.product_type_id || "",
           entry_date: initial.entry_date,
           price_inr: String(initial.price_inr),
           quantity: String(initial.quantity),
@@ -90,6 +93,7 @@ export function ProductForm({ initial }: { initial?: Product }) {
       : blank(),
   );
   const [vendors, setVendors] = useState<Vendor[]>([]);
+  const [productTypes, setProductTypes] = useState<ProductType[]>([]);
   const [rate, setRate] = useState<number | null>(
     initial?.exchange_rate || null,
   );
@@ -111,10 +115,11 @@ export function ProductForm({ initial }: { initial?: Product }) {
   const blobUrl = useRef("");
   useEffect(() => {
     let live = true;
-    api<{ vendors: Vendor[]; settings: Settings }>("/api/config")
+    api<{ vendors: Vendor[]; productTypes: ProductType[]; settings: Settings }>("/api/config")
       .then((v) => {
         if (live) {
           setVendors(v.vendors);
+          setProductTypes(v.productTypes);
           if (!initial) setRate(v.settings.exchange_rate);
         }
       })
@@ -284,6 +289,7 @@ export function ProductForm({ initial }: { initial?: Product }) {
       }
       const body = {
         ...form,
+        product_type_id: form.product_type_id || null,
         ...numbers,
         photo_key: key,
         updated_at: initial?.updated_at,
@@ -423,6 +429,16 @@ export function ProductForm({ initial }: { initial?: Product }) {
                     required
                   />
                 </label>
+                <label>
+                  Product type
+                  <select aria-label="Product type" value={form.product_type_id} disabled={loading}
+                    onChange={e => update("product_type_id",e.target.value)}>
+                    <option value="">Unclassified</option>
+                    {productTypes.filter(t => t.active || t.id === initial?.product_type_id).map(t => (
+                      <option key={t.id} value={t.id}>{t.name}{t.active ? "" : " (archived)"}</option>
+                    ))}
+                  </select>
+                </label>
                 <div className="field-grid">
                   <label>
                     Vendor
@@ -518,7 +534,7 @@ export function ProductForm({ initial }: { initial?: Product }) {
                 <p>
                   {initial
                     ? "Your saved product identifier."
-                    : "Generated automatically from vendor and GBP cost per piece."}
+                    : "Generated automatically from vendor code and GBP cost per piece."}
                 </p>
               </div>
             </div>

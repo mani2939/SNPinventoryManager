@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { calculatePricing } from "../lib/pricing";
-import { productSchema, settingsSchema } from "../lib/validation";
+import { productSchema, settingsSchema, vendorSchema, vendorUpdateSchema, productTypeUpdateSchema } from "../lib/validation";
 test("landed cost, per-piece conversion and fixed 3× retail", () => {
   assert.deepEqual(
     calculatePricing({
@@ -21,6 +21,16 @@ test("landed cost, per-piece conversion and fixed 3× retail", () => {
       retail_gbp: 28.35,
     },
   );
+});
+
+test("vendor pseudonyms normalize and configuration updates require valid changes",()=>{
+  assert.equal(vendorSchema.parse({name:"Hidden supplier",pseudo_code:" v01 "}).pseudo_code,"V01");
+  for (const pseudo_code of ["", "V", "V01X", "V-1", "supplier"])
+    assert.equal(vendorSchema.safeParse({name:"Hidden supplier",pseudo_code}).success,false);
+  const id="00000000-0000-4000-8000-000000000001";
+  assert.equal(vendorUpdateSchema.safeParse({id}).success,false);
+  assert.equal(productTypeUpdateSchema.safeParse({id}).success,false);
+  assert.equal(vendorUpdateSchema.safeParse({id,active:false}).success,true);
 });
 test("half-up money rounding avoids floating-point drift", () => {
   const p = calculatePricing({

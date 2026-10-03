@@ -1,8 +1,8 @@
-# Verification — 2 October 2026 (Neon and barcode update)
+# Verification — 3 October 2026 (product types and vendor codes)
 
 - Final production build: passed (`next build`, Next.js 16.3.8); strict TypeScript compilation passed.
-- Pricing, input-validation, SKU, PostgreSQL, automatic-migration and auth-configuration tests: **13 passed**.
-- Complete browser workflow: **1 passed**, covering desktop/mobile, login/logout, rejected login, protected APIs, vendor/rate setup, photo upload/read, create/edit/delete, refresh persistence, vendor/date filters, saved exchange rates, invalid input, cross-origin write rejection and stale-edit rejection. No JavaScript page errors were recorded.
+- Pricing, input-validation, SKU, PostgreSQL, automatic-migration and auth-configuration tests: **16 passed**.
+- Browser workflows: **2 passed in separate runs**, covering desktop/mobile, login/logout, rejected login, protected APIs, vendor/rate setup, photo upload/read, create/edit/delete, refresh persistence, vendor/date filters, saved exchange rates, invalid input, cross-origin write rejection and stale-edit rejection. No JavaScript page errors were recorded.
 - SKU generation: BACKGROUND mapping, Z decimal separator, two pence digits, suffixes 000 and 999, vendor normalization and half-up rounding verified. The SKU and visible barcode are available before saving.
 - Database: the generic PostgreSQL migration ran twice successfully in PGlite. Pricing triggers matched TypeScript calculations including rounding and large values. Untrusted table/function access was denied. Persistent login limiting and reset passed.
 - Actual production save SQL executed against PGlite: unique reservations, mismatched-cost rejection, one-time redemption, immutable stored SKU/barcode and atomic rollback of a claim when product insertion fails all passed. Deleted product identifiers remain consumed.
@@ -16,14 +16,14 @@
 
 ## SQL setup verification added
 
-The standalone SQL setup was run on fresh PostgreSQL via PGlite and rerun successfully. Existing vendor/rate data was preserved. The read-only verifier returned all five tables and caught a deliberately disabled identity trigger. SQL setup creates all required tables, keys, pricing and identity triggers, login limiter and settings singleton; it verifies required columns/types and supporting indexes before committing.
+The standalone SQL setup was run on fresh PostgreSQL via PGlite and rerun successfully. Existing vendor/rate data was preserved. The read-only verifier returned all six tables and caught a deliberately disabled identity trigger. SQL setup creates all required tables, keys, pricing and identity triggers, login limiter and settings singleton; it verifies required columns/types and supporting indexes before committing.
 
 On 2 October 2026, the connected Vercel app listed `sn-pinventory-manager` (`prj_jbdcBdNejawu5WrdEdSeRCEag5Yj`), but project details and deployment access returned 403 for the `snp11` scope. No live database credential was available locally. No SQL has been applied to the live Neon database from this workspace, and production readiness is not yet verified. Re-authorizing Vercel for that scope is needed to continue live inspection.
 
 ## Automatic Vercel migration
 
 - Added npm `prebuild` migration hook, `db:migrate` manual command, and `vercel.json` build-command wiring.
-- The actual runner executed against PostgreSQL via PGlite: first deployment created all five tables; repeat deployment retained a complete saved product, barcode, vendor and exchange rate exactly.
+- The actual runner executed against PostgreSQL via PGlite: first deployment created all six tables; repeat deployment retained a complete saved product, barcode, vendor and exchange rate exactly.
 - Verification failure rolled back initial table creation. On an existing schema it restored the active trigger and preserved vendor data.
 - The real `npm run build` process with `VERCEL=1` and missing `DATABASE_URL` exited 1 during prebuild before Next.js built. `DEMO_MODE=true` did not bypass the check.
 - Transaction-level advisory locking and timeout SQL executed successfully. Multiple live Neon/Vercel builds have not been tested concurrently.
@@ -47,6 +47,22 @@ The public https://www.snpinventory.com/api/auth/login endpoint was reproduced r
 - Browser workflow verified draft printing without a product-save request, printed label order, two draft copies, saved labels, edited retail price with immutable SKU, modal closing and mobile control widths.
 - Draft PDF output contained exactly two 70 × 40 mm pages; saved-label PDFs contained exactly three pages at each selected size. Text extraction confirmed product name, £28.35 and the SKU, with no print controls/product form. First-page renders were visually inspected. Barcodes from both physical sizes and the draft output were independently decoded using ZXing.
 - Production build and strict TypeScript checks passed. These are local browser/PDF checks; the update must be deployed to appear on the live site.
+
+## Product types and vendor pseudonyms
+
+Story: Settings saves vendor codes and product types through authenticated APIs; the product dropdown stores the selected type, and SKU reservation uses the configured vendor code.
+
+| Boundary | Result | Evidence |
+| --- | --- | --- |
+| Settings and product UI | Passed | Add/edit vendor name and code, add/rename/archive type, mobile layout and product dropdown |
+| API validation | Passed | Unauthorized type creation 401, duplicate vendor code 409, invalid code 400, archived type selection 400 |
+| PostgreSQL upgrade | Passed | Previous five-table fixture upgraded to six tables, anonymous codes assigned with collision handling, existing product and barcode unchanged |
+| PostgreSQL constraints | Passed | Unique codes/type names, nullable type FK, active-type trigger, RLS, rollback and stale vendor-code claim rejection |
+| Persistence and scanning | Passed | Type shown in inventory and retained after edit; existing SVG and SKU unchanged after code edits; original barcode lookup succeeded |
+
+The current complete inventory browser scenario passed with code-based SKUs. The dedicated Settings scenario passed separately: this environment's serverless Chromium cannot reliably create a second browser context in one process. No application page errors were recorded. The new SQL creation and upgrade were tested in PGlite; no live Neon credential was available to apply changes from this workspace. Vercel's automatic migration applies them on the next deployment.
+
+Existing printed SKUs retain any legacy name prefix. Only newly reserved/backfilled SKUs use vendor pseudonyms; no silent relabeling or identity rotation occurs. Product type is optional (Unclassified), and older products remain unclassified until assigned.
 
 ## Live verification still required
 

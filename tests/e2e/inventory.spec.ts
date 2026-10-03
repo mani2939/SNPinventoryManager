@@ -25,8 +25,17 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await expect(page.locator(".success[role=status]")).toContainText(
     "Exchange rate updated",
   );
-  for (const name of [vendorA, vendorB]) {
+  const configured = await (await page.request.get("/api/config")).json();
+  const usedCodes = new Set(configured.vendors.map((v: {pseudo_code:string})=>v.pseudo_code));
+  const codes:string[]=[];
+  for (let n=1;codes.length<2;n++) {
+    const code=n.toString(36).toUpperCase().padStart(3,"0");
+    if (!usedCodes.has(code)) codes.push(code);
+  }
+  const [codeA,codeB]=codes;
+  for (const [index,name] of [vendorA, vendorB].entries()) {
     await page.getByLabel("Vendor name").fill(name);
+    await page.getByLabel("Vendor code",{exact:true}).fill(codes[index]);
     await page.getByRole("button", { name: "Add vendor", exact: true }).click();
     await expect(page.locator(".success[role=status]")).toContainText(
       "Vendor added",
@@ -56,7 +65,7 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await expect(page.getByAltText("Product photo preview")).toBeVisible();
   await expect(page.locator(".gbp-cost strong")).toHaveText("£9.45");
   await expect(page.locator(".retail-cost strong")).toHaveText("£28.35");
-  await expect(page.getByLabel("SKU code")).toHaveValue(/^JAI-NZKG-\d{3}$/);
+  await expect(page.getByLabel("SKU code")).toHaveValue(new RegExp(`^${codeA}-NZKG-\\d{3}$`));
   const sku = await page.getByLabel("SKU code").inputValue();
   await expect(page.getByAltText(`Barcode ${sku}`)).toBeVisible();
   await expect(page.locator(".sku-card .label-name")).toHaveText(`Kundan pearl set ${stamp}`);
@@ -291,7 +300,7 @@ test("complete inventory workflow, photo persistence, rate snapshot, filtering, 
   await page.getByLabel("Price per piece (INR)").fill("1200");
   await expect(page.locator(".gbp-cost strong")).toHaveText("£10.00");
   await expect(page.locator(".retail-cost strong")).toHaveText("£30.00");
-  await expect(page.getByLabel("SKU code")).toHaveValue(/^MUM-BDZDD-\d{3}$/);
+  await expect(page.getByLabel("SKU code")).toHaveValue(new RegExp(`^${codeB}-BDZDD-\\d{3}$`));
   await page.screenshot({
     path: "test-results/product-mobile.png",
     fullPage: true,

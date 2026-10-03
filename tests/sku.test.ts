@@ -9,12 +9,12 @@ import { saveNewProductSql } from "../lib/product-sql";
 
 test("BACKGROUND encodes GBP including pence and preserves all three suffix digits", () => {
   assert.equal(encodePrice("1234567890.12"), "BACKGROUNDZBA");
-  assert.equal(buildSku("Test vendor", 12.34, 1), "TES-BAZCK-001");
-  assert.equal(buildSku("Jaipur", 9.45, 0), "JAI-NZKG-000");
+  assert.equal(buildSku("V01", 12.34, 1), "V01-BAZCK-001");
+  assert.equal(buildSku("V02", 9.45, 0), "V02-NZKG-000");
   assert.equal(buildSku("Tes", 0, 999), "TES-DZDD-999");
   assert.equal(encodePrice("1.005"), "BZDB");
-  assert.equal(vendorPrefix("É & Co"), "ECO");
-  assert.equal(vendorPrefix("A"), "AXX");
+  assert.throws(() => vendorPrefix("Jaipur"));
+  assert.equal(vendorPrefix(" v01 "), "V01");
   assert.throws(() => encodePrice(-1));
   assert.throws(() => buildSku("Tes", 1, 1000));
   assert.equal(skuSchema.safeParse("tes-bazck-001").success, true);
@@ -31,10 +31,10 @@ test("Postgres reservations are unique and claims plus product saves are atomic"
     await pg.exec(await readFile("database/migration.sql", "utf8"));
     const vendor = (
       await pg.query<{ id: string }>(
-        "insert into vendors(name) values('Test') returning id",
+        "insert into vendors(name,pseudo_code) values('Test','V01') returning id",
       )
     ).rows[0].id;
-    const sku = buildSku("Test", 12.34, 1),
+    const sku = buildSku("V01", 12.34, 1),
       svg = generateBarcode(sku);
     const token = (
       await pg.query<{ token: string }>(
@@ -66,10 +66,11 @@ test("Postgres reservations are unique and claims plus product saves are atomic"
       null,
       token,
       12.34,
+      null,
     ];
     // A mismatched GBP cost cannot claim this reservation.
     assert.equal(
-      (await pg.query(saveNewProductSql, [...params.slice(0, -1), 99])).rows
+      (await pg.query(saveNewProductSql, [...params.slice(0, 11), 99, null])).rows
         .length,
       0,
     );

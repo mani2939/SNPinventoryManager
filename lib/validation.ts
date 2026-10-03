@@ -25,6 +25,7 @@ export const productSchema = z.object({
   item_name: z.string().trim().min(1).max(200),
   description: z.string().trim().max(2000),
   vendor_id: z.string().uuid(),
+  product_type_id: z.string().uuid().nullable().default(null),
   entry_date: date,
   price_inr: decimal(0.01, 10000000),
   quantity: z.number().int().min(1).max(100000),
@@ -39,7 +40,15 @@ export const productSchema = z.object({
 });
 export const vendorSchema = z.object({
   name: z.string().trim().min(1).max(100),
+  pseudo_code: z.string().trim().toUpperCase().regex(/^[A-Z0-9]{3}$/, "Vendor code must contain exactly three letters or digits."),
 });
+export const vendorUpdateSchema = vendorSchema.partial().extend({
+  id: z.string().uuid(), active: z.boolean().optional(),
+}).refine(v => v.name !== undefined || v.pseudo_code !== undefined || v.active !== undefined, "Provide a vendor change.");
+export const productTypeSchema = z.object({name:z.string().trim().min(1).max(100)});
+export const productTypeUpdateSchema = productTypeSchema.partial().extend({
+  id:z.string().uuid(),active:z.boolean().optional(),
+}).refine(v=>v.name!==undefined || v.active!==undefined,"Provide a product type change.");
 export const settingsSchema = z.object({
   exchange_rate: decimal(0.0001, 100000, 4),
 });

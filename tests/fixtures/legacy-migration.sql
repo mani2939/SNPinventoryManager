@@ -4,35 +4,6 @@ create table if not exists public.vendors (
  created_at timestamptz not null default now()
 );
 create unique index if not exists vendors_name_unique on public.vendors(lower(name));
--- Anonymous codes for existing vendors; never derive a code from a name.
-alter table public.vendors add column if not exists pseudo_code text;
-do $$
-declare v record; attempt integer; candidate integer; code text; alphabet text := '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-begin
- for v in select id from public.vendors where pseudo_code is null order by id loop
-  attempt := 0;
-  loop
-   if attempt >= 46656 then raise exception 'All three-character vendor codes are used'; end if;
-   candidate := ((('x'||substr(replace(v.id::text,'-',''),1,6))::bit(24)::integer)+attempt) % 46656;
-   code := substr(alphabet,candidate/1296+1,1)||substr(alphabet,(candidate/36)%36+1,1)||substr(alphabet,candidate%36+1,1);
-   exit when not exists(select 1 from public.vendors where pseudo_code=code);
-   attempt := attempt+1;
-  end loop;
-  update public.vendors set pseudo_code=code where id=v.id;
- end loop;
-end $$;
-alter table public.vendors alter column pseudo_code set not null;
-do $$ begin
- if not exists(select 1 from pg_constraint where conrelid='public.vendors'::regclass and conname='vendors_pseudo_code_check') then
-  alter table public.vendors add constraint vendors_pseudo_code_check check(pseudo_code ~ '^[A-Z0-9]{3}$');
- end if;
-end $$;
-create unique index if not exists vendors_pseudo_code_unique on public.vendors(pseudo_code);
-create table if not exists public.product_types (
- id uuid primary key default gen_random_uuid(), name text not null check(length(name) between 1 and 100),
- active boolean not null default true, created_at timestamptz not null default now()
-);
-create unique index if not exists product_types_name_unique on public.product_types(lower(name));
 create table if not exists public.settings (
  id integer primary key check(id=1), exchange_rate numeric(12,4) check(exchange_rate>0 and exchange_rate<=100000)
 );
@@ -49,19 +20,6 @@ create table if not exists public.products (
 );
 create index if not exists products_vendor_date_idx on public.products(vendor_id,entry_date desc);
 create index if not exists products_date_idx on public.products(entry_date desc,created_at desc);
-alter table public.products add column if not exists product_type_id uuid references public.product_types(id);
-create index if not exists products_product_type_idx on public.products(product_type_id);
-create or replace function public.validate_product_type() returns trigger language plpgsql set search_path=public as $$
-begin
- if new.product_type_id is not null and (TG_OP='INSERT' or new.product_type_id is distinct from old.product_type_id) then
-  if not exists(select 1 from public.product_types where id=new.product_type_id and active) then
-   raise exception 'Select an active product type' using errcode='23514';
-  end if;
- end if;
- return new;
-end; $$;
-drop trigger if exists product_type_guard on public.products;
-create trigger product_type_guard before insert or update on public.products for each row execute function public.validate_product_type();
 create unique index if not exists products_photo_unique on public.products(photo_key) where photo_key is not null;
 create or replace function public.calculate_product_prices() returns trigger language plpgsql set search_path=public as $$
 begin
@@ -94,14 +52,11 @@ begin
  return result_count<=10;
 end; $$;
 alter table public.vendors enable row level security;
-alter table public.product_types enable row level security;
 alter table public.settings enable row level security;
 alter table public.products enable row level security;
 alter table public.login_limits enable row level security;
 -- Only the database owner/backend credential may access these tables.
 revoke all on public.vendors,public.settings,public.products,public.login_limits from public;
-revoke all on public.product_types from public;
-revoke all on function public.validate_product_type() from public;
 revoke all on function public.consume_login_attempt(text) from public;
 revoke all on function public.calculate_product_prices() from public;
 create table if not exists public.sku_reservations (

@@ -739,6 +739,35 @@ label select {
   padding-bottom: 22px;
   border-bottom: 1px solid var(--line);
 }
+.catalog-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(90px, 120px);
+  gap: 14px;
+  padding-bottom: 16px;
+}
+.catalog-form > label:first-child:last-of-type {
+  grid-column: 1 / -1;
+}
+.catalog-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.catalog-row-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.vendor-code {
+  display: inline-block;
+  margin-left: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+  background: #f1f3f8;
+  color: var(--blue);
+}
 .grow {
   flex: 1;
   min-width: 0;

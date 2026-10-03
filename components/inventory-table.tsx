@@ -275,6 +275,7 @@ export function InventoryTable() {
                   <th>Product</th>
                   <th>SKU</th>
                   <th>Vendor</th>
+                  <th>Product type</th>
                   <th>Date</th>
                   <th>Price · INR</th>
                   <th>Qty</th>
@@ -323,6 +324,7 @@ export function InventoryTable() {
                       </code>
                     </td>
                     <td>{p.vendors?.name || "—"}</td>
+                    <td>{p.product_types?.name || "Unclassified"}</td>
                     <td>{displayDate(p.entry_date)}</td>
                     <td>{money(p.price_inr, "INR")}</td>
                     <td>{p.quantity}</td>

@@ -13,7 +13,7 @@ test("real PostgreSQL migration, pricing trigger, constraints, RLS and persisten
     await pg.exec(sql);
     await pg.exec(sql);
     const v = await pg.query<{ id: string }>(
-      "insert into vendors(name) values('Test vendor') returning id",
+      "insert into vendors(name,pseudo_code) values('Test vendor','V01') returning id",
     );
     const vendor = v.rows[0].id;
     for (const input of [
@@ -47,7 +47,7 @@ test("real PostgreSQL migration, pricing trigger, constraints, RLS and persisten
       },
     ]) {
       const expected = calculatePricing(input);
-      const sku = buildSku("Test vendor", expected.unit_gbp, 1);
+      const sku = buildSku("V01", expected.unit_gbp, 1);
       const barcode = generateBarcode(sku);
       await pg.query(
         "insert into sku_reservations(sku,vendor_id,unit_gbp,exchange_rate,barcode_svg,redeemed) values($1,$2,$3,$4,$5,true)",

@@ -24,21 +24,23 @@ export function encodePrice(price: number | string) {
     .map((c) => mapping[c])
     .join("");
 }
-export function vendorPrefix(name: string) {
-  return name
-    .normalize("NFKD")
-    .replace(/[\u0300-\u036f]/g, "")
-    .toUpperCase()
-    .replace(/[^A-Z0-9]/g, "")
-    .slice(0, 3)
-    .padEnd(3, "X");
+export function vendorPrefix(pseudoCode: string) {
+  const code = pseudoCode.trim().toUpperCase();
+  if (!/^[A-Z0-9]{3}$/.test(code))
+    throw new Error("Vendor code must contain exactly three letters or digits.");
+  return code;
+}
+// For upgrading existing vendors; independent of their names. Mirrors SQL.
+export function anonymousVendorCode(id: string, attempt = 0) {
+  const start = parseInt(id.replaceAll("-", "").slice(0, 6), 16);
+  return ((start + attempt) % 46656).toString(36).toUpperCase().padStart(3, "0");
 }
 export function buildSku(
-  name: string,
+  pseudoCode: string,
   unitGbp: number | string,
   suffix: number,
 ) {
   if (!Number.isInteger(suffix) || suffix < 0 || suffix > 999)
     throw new Error("SKU suffix must have three digits.");
-  return `${vendorPrefix(name)}-${encodePrice(unitGbp)}-${String(suffix).padStart(3, "0")}`;
+  return `${vendorPrefix(pseudoCode)}-${encodePrice(unitGbp)}-${String(suffix).padStart(3, "0")}`;
 }

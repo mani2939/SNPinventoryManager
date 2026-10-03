@@ -10,14 +10,14 @@ async function main() {
     throw new Error("Set DATABASE_URL in .env.local.");
   const sql = neon(process.env.DATABASE_URL);
   const products = await sql.query(
-    "select p.id,p.unit_gbp,p.exchange_rate,p.vendor_id,v.name from products p join vendors v on v.id=p.vendor_id where p.sku is null order by p.created_at",
+    "select p.id,p.unit_gbp,p.exchange_rate,p.vendor_id,v.pseudo_code from products p join vendors v on v.id=p.vendor_id where p.sku is null order by p.created_at",
   );
   let saved = 0;
   for (const p of products) {
     const start = randomInt(1000);
     let done = false;
     for (let n = 0; n < 1000; n++) {
-      const sku = buildSku(p.name, p.unit_gbp, (start + n) % 1000),
+      const sku = buildSku(p.pseudo_code, p.unit_gbp, (start + n) % 1000),
         svg = generateBarcode(sku);
       const result = await sql.query(
         `with reserved as (insert into sku_reservations(sku,vendor_id,unit_gbp,exchange_rate,barcode_svg,redeemed) values($1,$2,$3,$4,$5,true) on conflict(sku) do nothing returning *) update products p set sku=r.sku,barcode_svg=r.barcode_svg from reserved r where p.id=$6 and p.sku is null returning p.id`,

@@ -1,16 +1,39 @@
--- Shapes & Pieces: Neon PostgreSQL creation and readiness checks.
--- Run this ENTIRE file in the Neon SQL Editor using the database owner role.
--- Select the branch/database connected to Vercel's Production DATABASE_URL.
--- Existing app rows are preserved. Safe to rerun with the expected app schema.
--- No vendors, exchange rates or sample products are invented.
--- Verification is inside the transaction: errors roll back this setup run.
-
+-- Complete idempotent inventory setup and upgrade. Run as the database owner.
 begin;
 create table if not exists public.vendors (
  id uuid primary key default gen_random_uuid(), name text not null check(length(name) between 1 and 100), active boolean not null default true,
  created_at timestamptz not null default now()
 );
 create unique index if not exists vendors_name_unique on public.vendors(lower(name));
+-- Anonymous codes for existing vendors; never derive a code from a name.
+alter table public.vendors add column if not exists pseudo_code text;
+do $$
+declare v record; attempt integer; candidate integer; code text; alphabet text := '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+begin
+ for v in select id from public.vendors where pseudo_code is null order by id loop
+  attempt := 0;
+  loop
+   if attempt >= 46656 then raise exception 'All three-character vendor codes are used'; end if;
+   candidate := ((('x'||substr(replace(v.id::text,'-',''),1,6))::bit(24)::integer)+attempt) % 46656;
+   code := substr(alphabet,candidate/1296+1,1)||substr(alphabet,(candidate/36)%36+1,1)||substr(alphabet,candidate%36+1,1);
+   exit when not exists(select 1 from public.vendors where pseudo_code=code);
+   attempt := attempt+1;
+  end loop;
+  update public.vendors set pseudo_code=code where id=v.id;
+ end loop;
+end $$;
+alter table public.vendors alter column pseudo_code set not null;
+do $$ begin
+ if not exists(select 1 from pg_constraint where conrelid='public.vendors'::regclass and conname='vendors_pseudo_code_check') then
+  alter table public.vendors add constraint vendors_pseudo_code_check check(pseudo_code ~ '^[A-Z0-9]{3}$');
+ end if;
+end $$;
+create unique index if not exists vendors_pseudo_code_unique on public.vendors(pseudo_code);
+create table if not exists public.product_types (
+ id uuid primary key default gen_random_uuid(), name text not null check(length(name) between 1 and 100),
+ active boolean not null default true, created_at timestamptz not null default now()
+);
+create unique index if not exists product_types_name_unique on public.product_types(lower(name));
 create table if not exists public.settings (
  id integer primary key check(id=1), exchange_rate numeric(12,4) check(exchange_rate>0 and exchange_rate<=100000)
 );
@@ -27,6 +50,19 @@ create table if not exists public.products (
 );
 create index if not exists products_vendor_date_idx on public.products(vendor_id,entry_date desc);
 create index if not exists products_date_idx on public.products(entry_date desc,created_at desc);
+alter table public.products add column if not exists product_type_id uuid references public.product_types(id);
+create index if not exists products_product_type_idx on public.products(product_type_id);
+create or replace function public.validate_product_type() returns trigger language plpgsql set search_path=public as $$
+begin
+ if new.product_type_id is not null and (TG_OP='INSERT' or new.product_type_id is distinct from old.product_type_id) then
+  if not exists(select 1 from public.product_types where id=new.product_type_id and active) then
+   raise exception 'Select an active product type' using errcode='23514';
+  end if;
+ end if;
+ return new;
+end; $$;
+drop trigger if exists product_type_guard on public.products;
+create trigger product_type_guard before insert or update on public.products for each row execute function public.validate_product_type();
 create unique index if not exists products_photo_unique on public.products(photo_key) where photo_key is not null;
 create or replace function public.calculate_product_prices() returns trigger language plpgsql set search_path=public as $$
 begin
@@ -59,11 +95,14 @@ begin
  return result_count<=10;
 end; $$;
 alter table public.vendors enable row level security;
+alter table public.product_types enable row level security;
 alter table public.settings enable row level security;
 alter table public.products enable row level security;
 alter table public.login_limits enable row level security;
 -- Only the database owner/backend credential may access these tables.
 revoke all on public.vendors,public.settings,public.products,public.login_limits from public;
+revoke all on public.product_types from public;
+revoke all on function public.validate_product_type() from public;
 revoke all on function public.consume_login_attempt(text) from public;
 revoke all on function public.calculate_product_prices() from public;
 create table if not exists public.sku_reservations (
@@ -103,7 +142,8 @@ declare
 begin
  for required in
   select * from (values
-   ('vendors','id','uuid'),('vendors','name','text'),('vendors','active','boolean'),('vendors','created_at','timestamp with time zone'),
+   ('vendors','id','uuid'),('vendors','name','text'),('vendors','pseudo_code','text'),('vendors','active','boolean'),('vendors','created_at','timestamp with time zone'),
+   ('product_types','id','uuid'),('product_types','name','text'),('product_types','active','boolean'),('product_types','created_at','timestamp with time zone'),('products','product_type_id','uuid'),
    ('settings','id','integer'),('settings','exchange_rate','numeric(12,4)'),
    ('products','id','uuid'),('products','item_name','text'),('products','description','text'),('products','vendor_id','uuid'),('products','entry_date','date'),
    ('products','price_inr','numeric(12,2)'),('products','quantity','integer'),('products','discount_percent','numeric(5,2)'),('products','shipping_percent','numeric(6,2)'),
@@ -124,7 +164,7 @@ begin
   end if;
  end loop;
 
- for required in select unnest(array['vendors','settings','products','sku_reservations','login_limits']) as table_name loop
+ for required in select unnest(array['vendors','product_types','settings','products','sku_reservations','login_limits']) as table_name loop
   relation_id:=to_regclass('public.'||required.table_name);
   if not exists(select 1 from pg_constraint where conrelid=relation_id and contype='p') then
    raise exception 'Missing primary key on %',required.table_name;
@@ -135,7 +175,7 @@ begin
  end loop;
 
  for required in select * from (values
-  ('products','vendor_id','vendors'),('products','sku','sku_reservations'),('sku_reservations','vendor_id','vendors')
+  ('products','vendor_id','vendors'),('products','product_type_id','product_types'),('products','sku','sku_reservations'),('sku_reservations','vendor_id','vendors')
  ) as expected(table_name,column_name,parent_table) loop
   if not exists(
    select 1 from pg_constraint c join pg_attribute a on a.attrelid=c.conrelid and a.attnum=any(c.conkey)
@@ -146,6 +186,7 @@ begin
 
  for required in select * from (values
   ('vendors_name_unique',true),('products_photo_unique',true),('products_sku_unique',true),
+  ('vendors_pseudo_code_unique',true),('product_types_name_unique',true),('products_product_type_idx',false),
   ('sku_reservations_token_key',true),('products_vendor_date_idx',false),('products_date_idx',false)
  ) as expected(index_name,must_be_unique) loop
   if not exists(select 1 from pg_index where indexrelid=to_regclass('public.'||required.index_name) and indisvalid and indisready and (not required.must_be_unique or indisunique)) then
@@ -154,7 +195,7 @@ begin
  end loop;
 
  for required in select * from (values
-  ('product_price_calculation','calculate_product_prices()'),('product_identity_guard','protect_product_identity()')
+  ('product_price_calculation','calculate_product_prices()'),('product_identity_guard','protect_product_identity()'),('product_type_guard','validate_product_type()')
  ) as expected(trigger_name,function_signature) loop
   if not exists(select 1 from pg_trigger where tgrelid='public.products'::regclass and tgname=required.trigger_name and tgenabled in ('O','A') and tgfoid=to_regprocedure('public.'||required.function_signature)) then
    raise exception 'Missing or disabled product trigger: %',required.trigger_name;
@@ -162,20 +203,25 @@ begin
  end loop;
  if to_regprocedure('public.consume_login_attempt(text)') is null then raise exception 'Missing persistent login limiter';end if;
  if not exists(select 1 from public.settings where id=1) then raise exception 'Missing settings singleton';end if;
+ if not exists(select 1 from pg_attribute where attrelid='public.vendors'::regclass and attname='pseudo_code' and attnotnull)
+  or not exists(select 1 from pg_constraint where conrelid='public.vendors'::regclass and conname='vendors_pseudo_code_check' and convalidated)
+  or exists(select 1 from public.vendors where pseudo_code is null or pseudo_code !~ '^[A-Z0-9]{3}$') then
+  raise exception 'Vendor codes must be present and valid';
+ end if;
 
  if exists(
   select 1 from pg_proc p cross join lateral aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a
-  where p.oid=any(array[to_regprocedure('public.consume_login_attempt(text)'),to_regprocedure('public.calculate_product_prices()'),to_regprocedure('public.protect_product_identity()')])
+  where p.oid=any(array[to_regprocedure('public.consume_login_attempt(text)'),to_regprocedure('public.calculate_product_prices()'),to_regprocedure('public.protect_product_identity()'),to_regprocedure('public.validate_product_type()')])
    and a.grantee=0 and a.privilege_type='EXECUTE'
  ) then raise exception 'Public execution is enabled on an app function';end if;
 end $$;
 
-
-commit;
-
--- Final readiness report; configure vendor/rate values in the app Settings.
+-- The schema status is separate from values that you set in the app's Settings.
 select 'schema verified' as schema_status,current_database() as database_name,current_user as sql_role,
- (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('vendors','settings','products','sku_reservations','login_limits') and c.relkind='r') as app_tables,
+ (select count(*) from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relname in ('vendors','product_types','settings','products','sku_reservations','login_limits') and c.relkind='r') as app_tables,
  (select exchange_rate from public.settings where id=1) as configured_inr_per_gbp,
  (select count(*) from public.vendors where active) as active_vendors,
+ (select count(*) from public.product_types where active) as active_product_types,
  (select count(*) from public.products where sku is null or barcode_svg is null) as products_needing_sku_backfill;
+
+commit;
