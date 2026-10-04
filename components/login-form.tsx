@@ -2,7 +2,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { LockKeyhole } from "lucide-react";
-export function LoginForm() {
+export function LoginForm({
+  workspace = "inventory",
+}: {
+  workspace?: "inventory" | "invoicing";
+}) {
   const router = useRouter();
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
@@ -63,7 +67,7 @@ export function LoginForm() {
       </label>
       <label>
         Workspace
-        <select name="workspace" defaultValue="inventory" required>
+        <select name="workspace" defaultValue={workspace} required>
           <option value="inventory">Inventory Manager</option>
           <option value="invoicing">Invoicing</option>
         </select>

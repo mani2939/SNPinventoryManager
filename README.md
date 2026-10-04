@@ -19,7 +19,7 @@ A Vercel-ready jewellery inventory app using Next.js 16.3.8, React 19.3, TypeScr
 
 ## Invoicing
 
-Choose **Inventory Manager** or **Invoicing** from the login dropdown. The sidebar also switches workspaces. Invoicing includes a daily register filtered by inclusive date range and first/last name prefix, manual entry and barcode/camera entry using inventory products. Scanning the same product again increases quantity; saved retail GBP prices are suggested and editable. Saving never deducts inventory quantities. Prices use GBP with no VAT breakdown.
+Choose **Inventory Manager** or **Invoicing** from the login dropdown. Only a master administrator can switch workspaces without another login. Workspace users must sign out and sign in to the other workspace. Page and API access are restricted to their role. Invoicing includes a daily register filtered by inclusive date range and first/last name prefix, manual entry and barcode/camera entry using inventory products. Scanning the same product again increases quantity; saved retail GBP prices are suggested and editable. Saving never deducts inventory quantities. Prices use GBP with no VAT breakdown.
 
 Configure seller contact, payment details, footer and default due days in **Invoice settings**. Each saved invoice snapshots those settings, customer details, descriptions and prices; later product/settings changes do not rewrite it. Correct a saved financial mistake by voiding it and creating another invoice. Mark invoices paid/unpaid, download a branded multipage PDF, or send it via WhatsApp. Voided invoices remain in the register and cannot be reopened or sent.
 
@@ -64,7 +64,7 @@ Then run:
 npm run dev
 ```
 
-Open http://localhost:3000 and sign in with **SNPAdmin / SNPRocks**. Add vendors with unique codes and an exchange rate in Settings before entering products; configure your product types there too. Local demo data and photos live under `.demo-data/`; no sample inventory is preloaded. This mode is disabled when `NODE_ENV=production` or `VERCEL` is set. It is not production persistence.
+Open http://localhost:3000 and sign in with your privately configured account. Add vendors with unique codes and an exchange rate in Settings before entering products; configure your product types there too. Local demo data and photos live under `.demo-data/`; no sample inventory is preloaded. This mode is disabled when `NODE_ENV=production` or `VERCEL` is set. It is not production persistence.
 
 For real services, copy `.env.example` to `.env.local`, supply the values described below, and set `DEMO_MODE=false`.
 
@@ -150,7 +150,15 @@ The app checks uploaded object size, content type and WebP signature before acce
 npm run password:hash
 ```
 
-When prompted, enter **SNPRocks** to use the requested password. Paste the generated `salt:hash` into `ADMIN_PASSWORD_HASH`. Set `ADMIN_USERNAME=SNPAdmin`.
+Generate a separate `salt:hash` for each account and configure its server-only environment variables. Do not put credentials in this README or commit `.env.local`.
+
+| Account | Username variable | Password hash variable | Access |
+| --- | --- | --- | --- |
+| Inventory | `INVENTORY_USERNAME` | `INVENTORY_PASSWORD_HASH` | Inventory only |
+| Invoicing | `INVOICING_USERNAME` | `INVOICING_PASSWORD_HASH` | Invoicing only |
+| Master | `MASTER_USERNAME` | `MASTER_PASSWORD_HASH` | Both workspaces |
+
+Each account needs a distinct username and password. Missing invoicing/master credentials disable that account. Legacy `ADMIN_USERNAME` / `ADMIN_PASSWORD_HASH` values remain supported for the inventory-only account. They no longer grant administrator access. Previous shared-admin sessions are rejected and require a fresh login. Changing an account hash or removing the account revokes its sessions. The invoicing barcode endpoint exposes only product ID, name, retail price and SKU; it grants no inventory management access.
 
 Generate a separate session secret:
 
@@ -158,7 +166,7 @@ Generate a separate session secret:
 openssl rand -hex 32
 ```
 
-Set its output as `SESSION_SECRET`. Production requires a configured password hash and a session secret of at least 32 characters; the local demo password fallback is disabled. The password hash helper reads stdin rather than a command-line password argument. Changing the password hash does not immediately revoke existing 8-hour sessions; rotating `SESSION_SECRET` revokes them.
+Set its output as `SESSION_SECRET`. Production requires a configured password hash and a session secret of at least 32 characters; the local demo password fallback is disabled. The password hash helper reads stdin rather than a command-line password argument. Changing an account hash revokes its sessions; rotating `SESSION_SECRET` revokes all sessions.
 
 ## Product types and vendor codes
 
@@ -177,9 +185,9 @@ A request summary with status 500 does not contain the server exception. Check t
 | Variable | Required value |
 | --- | --- |
 | `DATABASE_URL` | Owner-role Neon connection string, enabled for Production |
-| `ADMIN_PASSWORD_HASH` | The **salt:hash output** from `npm run password:hash`; enter SNPRocks at its prompt, not directly into this environment variable |
+| `ADMIN_PASSWORD_HASH` | The **salt:hash output** from `npm run password:hash`; enter your chosen password at its prompt, not directly into this environment variable |
 | `SESSION_SECRET` | A random secret, at least 32 characters; generate with `openssl rand -hex 32` |
-| `ADMIN_USERNAME` | SNPAdmin (also the default if omitted) |
+| `INVENTORY_USERNAME` | Your privately configured inventory username; legacy `ADMIN_USERNAME` is supported |
 
 Set these values in the project's **Production environment**, then redeploy. Connecting Neon supplies the database URL; it does not configure the password hash or session secret. These variables must be available to the build and runtime.
 

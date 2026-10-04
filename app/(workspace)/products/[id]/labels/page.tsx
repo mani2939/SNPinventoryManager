@@ -1,6 +1,6 @@
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { z } from "zod";
-import { authenticated } from "@/lib/auth";
+import { requireWorkspace } from "@/lib/auth";
 import { getProduct } from "@/lib/repository";
 import { LabelPrinter } from "@/components/label-printer";
 export default async function Labels({
@@ -8,7 +8,7 @@ export default async function Labels({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await authenticated())) redirect("/login");
+  await requireWorkspace('inventory');
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const p = await getProduct(id);

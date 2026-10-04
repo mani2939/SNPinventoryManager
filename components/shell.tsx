@@ -3,13 +3,23 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname, useRouter } from "next/navigation";
 import { useState } from "react";
-import { Gem, LayoutList, Plus, Settings, LogOut, ReceiptText } from "lucide-react";
+import { prepareAuthNavigation } from "@/lib/client";
+import {
+  Gem,
+  LayoutList,
+  Plus,
+  Settings,
+  LogOut,
+  ReceiptText,
+} from "lucide-react";
 export function Shell({
   children,
   demo,
+  account,
 }: {
   children: React.ReactNode;
   demo: boolean;
+  account: { username: string; role: "inventory" | "invoicing" | "master" };
 }) {
   const pathname = usePathname();
   const router = useRouter();
@@ -17,6 +27,7 @@ export function Shell({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   async function logout() {
+    prepareAuthNavigation("/login");
     setBusy(true);
     try {
       const r = await fetch("/api/auth/logout", { method: "POST" });
@@ -24,6 +35,7 @@ export function Shell({
       router.replace("/login");
       router.refresh();
     } catch (e) {
+      prepareAuthNavigation(null);
       setError((e as Error).message);
       setBusy(false);
     }
@@ -39,26 +51,73 @@ export function Shell({
             height={66}
           />
           <div>
-            Shapes & Pieces<span>{invoicing ? "THE INVOICE STUDIO" : "THE INVENTORY STUDIO"}</span>
+            Shapes & Pieces
+            <span>
+              {invoicing ? "THE INVOICE STUDIO" : "THE INVENTORY STUDIO"}
+            </span>
           </div>
         </Link>
-        <div className="workspace-switcher"><label>
-          <span>Workspace</span>
-          <select aria-label="Switch workspace" value={invoicing ? "invoicing" : "inventory"} onChange={e=>router.push(e.target.value === "invoicing" ? "/invoices" : "/inventory")}>
-            <option value="inventory">Inventory Manager</option><option value="invoicing">Invoicing</option>
-          </select>
-        </label></div>
+        {account.role === "master" ? (
+          <div className="workspace-switcher">
+            <label>
+              <span>Workspace</span>
+              <select
+                aria-label="Switch workspace"
+                value={invoicing ? "invoicing" : "inventory"}
+                onChange={(e) =>
+                  router.push(
+                    e.target.value === "invoicing" ? "/invoices" : "/inventory",
+                  )
+                }
+              >
+                <option value="inventory">Inventory Manager</option>
+                <option value="invoicing">Invoicing</option>
+              </select>
+            </label>
+          </div>
+        ) : (
+          <button
+            className="logout workspace-login"
+            disabled={busy}
+            onClick={async () => {
+              prepareAuthNavigation(
+                `/login?workspace=${invoicing ? "inventory" : "invoicing"}`,
+              );
+              setBusy(true);
+              try {
+                const r = await fetch("/api/auth/logout", { method: "POST" });
+                if (!r.ok) throw new Error("Unable to sign out. Try again.");
+                window.location.assign(
+                  `/login?workspace=${invoicing ? "inventory" : "invoicing"}`,
+                );
+              } catch (e) {
+                prepareAuthNavigation(null);
+                setError((e as Error).message);
+                setBusy(false);
+              }
+            }}
+          >
+            Sign in to {invoicing ? "Inventory Manager" : "Invoicing"}
+          </button>
+        )}
         <div className="sidebar-label">WORKSPACE</div>
         <nav aria-label="Main navigation">
-          {(invoicing ? [
-            { href: "/invoices", label: "Invoices", icon: ReceiptText },
-            { href: "/invoices/new", label: "Create invoice", icon: Plus },
-            { href: "/invoices/settings", label: "Invoice settings", icon: Settings },
-          ] : [
-            { href: "/inventory", label: "Inventory", icon: LayoutList },
-            { href: "/products/new", label: "Add product", icon: Plus },
-            { href: "/settings", label: "Settings", icon: Settings },
-          ]).map(({ href, label, icon: Icon }) => (
+          {(invoicing
+            ? [
+                { href: "/invoices", label: "Invoices", icon: ReceiptText },
+                { href: "/invoices/new", label: "Create invoice", icon: Plus },
+                {
+                  href: "/invoices/settings",
+                  label: "Invoice settings",
+                  icon: Settings,
+                },
+              ]
+            : [
+                { href: "/inventory", label: "Inventory", icon: LayoutList },
+                { href: "/products/new", label: "Add product", icon: Plus },
+                { href: "/settings", label: "Settings", icon: Settings },
+              ]
+          ).map(({ href, label, icon: Icon }) => (
             <Link
               href={href}
               key={href}
@@ -88,20 +147,33 @@ export function Shell({
       <div className="workspace">
         <header className="topbar">
           <div>
-            <span className="topbar-title">{invoicing ? "Invoice studio" : "Inventory studio"}</span>
+            <span className="topbar-title">
+              {invoicing ? "Invoice studio" : "Inventory studio"}
+            </span>
             <span className="topbar-divider">/</span>
             <span className="muted">
-              {invoicing ? (pathname === "/invoices/settings" ? "Settings" : pathname === "/invoices/new" ? "New invoice" : "Invoices") : pathname === "/settings"
-                ? "Settings"
-                : pathname.includes("/products")
-                  ? "Product entry"
-                  : "Collection"}
+              {invoicing
+                ? pathname === "/invoices/settings"
+                  ? "Settings"
+                  : pathname === "/invoices/new"
+                    ? "New invoice"
+                    : "Invoices"
+                : pathname === "/settings"
+                  ? "Settings"
+                  : pathname.includes("/products")
+                    ? "Product entry"
+                    : "Collection"}
             </span>
           </div>
           <div className="account">
             <span className="avatar">SA</span>
             <span>
-              Admin<span className="account-caption">Shapes & Pieces</span>
+              {account.role === "master"
+                ? "Administrator"
+                : account.role === "invoicing"
+                  ? "Invoicing user"
+                  : "Inventory user"}
+              <span className="account-caption">Shapes & Pieces</span>
             </span>
             <button
               className="icon-button mobile-logout"
@@ -120,8 +192,8 @@ export function Shell({
         ) : null}
         {demo ? (
           <div className="demo-banner">
-            Local demo · Neon and PeaSoup are not connected. Preview data
-            stays on this computer.
+            Local demo · Neon and PeaSoup are not connected. Preview data stays
+            on this computer.
           </div>
         ) : null}
         <main className="main-content">{children}</main>

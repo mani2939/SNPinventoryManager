@@ -1,3 +1,4 @@
+import { testAccountEnv } from "./tests/fixtures/workspace-auth.mjs";
 import { defineConfig } from "@playwright/test";
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -17,7 +18,11 @@ export default defineConfig({
   webServer: {
     command: "npm run dev -- --port 3010",
     url: "http://127.0.0.1:3010",
-    env: { DEMO_MODE: "true", CUSTOMER_DATA_ENCRYPTION_KEY: Buffer.alloc(32,17).toString("base64") },
+    env: {
+      ...testAccountEnv,
+      DEMO_MODE: "true",
+      CUSTOMER_DATA_ENCRYPTION_KEY: Buffer.alloc(32, 17).toString("base64"),
+    },
     reuseExistingServer: false,
     timeout: 60000,
   },

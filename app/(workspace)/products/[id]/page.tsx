@@ -1,5 +1,5 @@
-import { notFound, redirect } from "next/navigation";
-import { authenticated } from "@/lib/auth";
+import { notFound } from "next/navigation";
+import { requireWorkspace } from "@/lib/auth";
 import { getProduct } from "@/lib/repository";
 import { ProductForm } from "@/components/product-form";
 import { z } from "zod";
@@ -8,7 +8,7 @@ export default async function Page({
 }: {
   params: Promise<{ id: string }>;
 }) {
-  if (!(await authenticated())) redirect("/login");
+  await requireWorkspace('inventory');
   const { id } = await params;
   if (!z.string().uuid().safeParse(id).success) notFound();
   const product = await getProduct(id);
