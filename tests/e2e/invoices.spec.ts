@@ -1,5 +1,6 @@
 import { test, expect } from "@playwright/test";
 import { readFile } from "node:fs/promises";
+import {testAccounts} from "../fixtures/workspace-auth.mjs";
 import { randomUUID } from "node:crypto";
 test.use({ actionTimeout: 15000 });
 
@@ -17,8 +18,8 @@ test("invoicing workspace creates scanned/manual invoices, private filters, PDF,
   });
   page.on("pageerror", (e) => errors.push(e.message));
   await page.goto("/login");
-  await page.getByLabel("Username").fill("SNPAdmin");
-  await page.getByLabel("Password", { exact: true }).fill("SNPRocks");
+  await page.getByLabel("Username").fill(testAccounts.master.username);
+  await page.getByLabel("Password", { exact: true }).fill(testAccounts.master.password);
   await page
     .getByRole("combobox", { name: "Workspace", exact: true })
     .selectOption("invoicing");

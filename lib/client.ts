@@ -1,3 +1,7 @@
+let authNavigationTarget: string | null = null;
+export function prepareAuthNavigation(target: string | null) {
+  authNavigationTarget = target;
+}
 export async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const r = await fetch(url, {
     ...options,
@@ -5,7 +9,11 @@ export async function api<T>(url: string, options?: RequestInit): Promise<T> {
     cache: "no-store",
   });
   if (r.status === 401) {
-    window.location.assign("/login");
+    if (window.location.pathname !== "/login")
+      window.location.assign(
+        authNavigationTarget ||
+          `/login?workspace=${window.location.pathname.startsWith("/invoices") ? "invoicing" : "inventory"}`,
+      );
     throw new Error("Please sign in again.");
   }
   const v = await r.json();

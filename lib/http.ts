@@ -1,6 +1,6 @@
 import "server-only";
 import { NextRequest, NextResponse } from "next/server";
-import { authenticated } from "./auth";
+import { currentSession } from "./auth";
 import { ZodError } from "zod";
 export class HttpError extends Error {
   constructor(
@@ -11,8 +11,13 @@ export class HttpError extends Error {
   }
 }
 export async function guard(req: NextRequest) {
-  if (!(await authenticated()))
-    throw new HttpError("Please sign in again.", 401);
+  const session = await currentSession();
+  if (!session) throw new HttpError("Please sign in again.", 401);
+  const workspace = req.nextUrl.pathname.startsWith("/api/invoices")
+    ? "invoicing"
+    : "inventory";
+  if (session.role !== "master" && session.role !== workspace)
+    throw new HttpError("Sign in with an account for this workspace.", 403);
   checkOrigin(req);
 }
 export function checkOrigin(req: NextRequest) {

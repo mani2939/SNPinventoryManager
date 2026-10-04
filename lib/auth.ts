@@ -1,43 +1,68 @@
 import "server-only";
 import { cookies } from "next/headers";
+import { redirect } from "next/navigation";
 import { SignJWT, jwtVerify } from "jose";
-import { scryptSync, timingSafeEqual } from "node:crypto";
 import { assertAuthConfiguration } from "./auth-config.mjs";
+import {
+  accounts,
+  accountStamp,
+  canAccess,
+  verifyAccount,
+} from "./auth-accounts.mjs";
+export type Workspace = "inventory" | "invoicing";
+export type AccountRole = Workspace | "master";
+export type Session = {
+  username: string;
+  role: AccountRole;
+  workspace: Workspace;
+};
 export const demoMode = () =>
   process.env.DEMO_MODE === "true" &&
   process.env.NODE_ENV === "development" &&
   !process.env.VERCEL;
 function secret() {
   if (!demoMode()) assertAuthConfiguration();
-  const value =
+  const v =
     process.env.SESSION_SECRET ||
     (demoMode() ? "local-only-preview-secret-never-deploy-32chars" : "");
-  if (value.length < 32)
+  if (v.length < 32)
     throw new Error("Set SESSION_SECRET to at least 32 random characters.");
-  return new TextEncoder().encode(value);
+  return new TextEncoder().encode(v);
 }
-export function verifyCredentials(username: string, password: string) {
+export function verifyCredentials(
+  username: string,
+  password: string,
+  workspace: Workspace,
+) {
   if (!demoMode()) assertAuthConfiguration();
-  const expectedUser = process.env.ADMIN_USERNAME || "SNPAdmin";
-  if (username.length > 100 || password.length > 200) return false;
-  let hash = process.env.ADMIN_PASSWORD_HASH;
-  if (!hash && demoMode())
-    hash = `local:${scryptSync("SNPRocks", "local", 64).toString("hex")}`;
-  if (!hash)
-    throw new Error("Configure ADMIN_PASSWORD_HASH before signing in.");
-  const [salt, hex] = hash.split(":");
-  if (!salt || !hex || !/^[a-f0-9]{128}$/i.test(hex))
-    throw new Error("Invalid ADMIN_PASSWORD_HASH configuration.");
-  const matches = timingSafeEqual(
-    scryptSync(password, salt, 64),
-    Buffer.from(hex, "hex"),
+  const a = verifyAccount(
+    username,
+    password,
+    workspace,
+    process.env,
+    demoMode(),
   );
-  return matches && username === expectedUser;
+  return a
+    ? {
+        username: String(a.username),
+        role: a.role as AccountRole,
+        stamp: a.stamp,
+      }
+    : null;
 }
-export async function createSession(workspace: "inventory" | "invoicing" = "inventory") {
-  const token = await new SignJWT({ role: "admin", workspace })
+export async function createSession(
+  a: { username: string; role: AccountRole; stamp: string },
+  workspace: Workspace,
+) {
+  const token = await new SignJWT({
+    role: a.role,
+    username: a.username,
+    workspace,
+    auth_version: 2,
+    auth_stamp: a.stamp,
+  })
     .setProtectedHeader({ alg: "HS256" })
-    .setSubject("snp-admin")
+    .setSubject(`${a.role}:${a.username}`)
     .setIssuer("snp-inventory")
     .setAudience("snp-inventory")
     .setIssuedAt()
@@ -51,23 +76,54 @@ export async function createSession(workspace: "inventory" | "invoicing" = "inve
     maxAge: 28800,
   });
 }
-export async function authenticated() {
+export async function currentSession(): Promise<Session | null> {
   const token = (await cookies()).get("snp_session")?.value;
-  if (!token) return false;
+  if (!token) return null;
   try {
-    const { payload } = await jwtVerify(token, secret(), {
+    const { payload: p } = await jwtVerify(token, secret(), {
       algorithms: ["HS256"],
       issuer: "snp-inventory",
       audience: "snp-inventory",
     });
-    return payload.role === "admin" && payload.sub === "snp-admin";
+    if (
+      p.auth_version !== 2 ||
+      !["inventory", "invoicing", "master"].includes(String(p.role)) ||
+      !["inventory", "invoicing"].includes(String(p.workspace))
+    )
+      return null;
+    const a = accounts(process.env, demoMode()).find(
+      (a) => a.username === p.username && a.role === p.role,
+    );
+    if (
+      !a ||
+      p.sub !== `${a.role}:${a.username}` ||
+      p.auth_stamp !== accountStamp(a) ||
+      !canAccess(a.role, String(p.workspace))
+    )
+      return null;
+    return {
+      username: String(a.username),
+      role: a.role as AccountRole,
+      workspace: p.workspace as Workspace,
+    };
   } catch {
-    return false;
+    return null;
   }
 }
-
+export async function authenticated() {
+  return !!(await currentSession());
+}
+export async function requireWorkspace(workspace: Workspace) {
+  const s = await currentSession();
+  if (!s || !canAccess(s.role, workspace))
+    redirect(`/login?workspace=${workspace}`);
+  return s;
+}
 export async function preferredWorkspace() {
- const token=(await cookies()).get('snp_session')?.value;
- if(!token)return '/login';
- try{const {payload}=await jwtVerify(token,secret(),{algorithms:['HS256'],issuer:'snp-inventory',audience:'snp-inventory'});if(payload.role!=='admin'||payload.sub!=='snp-admin')return '/login';return payload.workspace==='invoicing'?'/invoices':'/inventory';}catch{return '/login';}
+  const s = await currentSession();
+  return !s
+    ? "/login"
+    : s.workspace === "invoicing"
+      ? "/invoices"
+      : "/inventory";
 }

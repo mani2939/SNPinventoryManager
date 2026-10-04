@@ -79,7 +79,7 @@ export function InvoiceForm() {
     setScanMessage("");
     try {
       const v = await api<{ products: Product[] }>(
-        `/api/products?sku=${encodeURIComponent(code)}`,
+        `/api/invoices/products?sku=${encodeURIComponent(code)}`,
       );
       const p = v.products[0];
       if (!p)
